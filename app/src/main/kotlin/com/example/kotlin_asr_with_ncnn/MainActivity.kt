@@ -7,6 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
@@ -55,19 +59,34 @@ class MainActivity : ComponentActivity() {
 
             AppTheme(darkTheme = darkTheme) {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    when {
-                        showSettings -> SettingsScreen(
-                            darkTheme = darkTheme,
-                            onDarkThemeChanged = {
-                                darkTheme = it
-                                themePreferences.darkTheme = it
-                            },
-                            onBack = { showSettings = false }
-                        )
-                        else -> ASRScreen(
-                            viewModel = viewModel,
-                            onSettingsClick = { showSettings = true }
-                        )
+                    AnimatedContent(
+                        targetState = showSettings,
+                        transitionSpec = {
+                            if (targetState) {
+                                slideInHorizontally(initialOffsetX = { it }) togetherWith
+                                    slideOutHorizontally(targetOffsetX = { -it })
+                            } else {
+                                slideInHorizontally(initialOffsetX = { -it }) togetherWith
+                                    slideOutHorizontally(targetOffsetX = { it })
+                            }
+                        },
+                        label = "settings_transition"
+                    ) { isSettings ->
+                        if (isSettings) {
+                            SettingsScreen(
+                                darkTheme = darkTheme,
+                                onDarkThemeChanged = {
+                                    darkTheme = it
+                                    themePreferences.darkTheme = it
+                                },
+                                onBack = { showSettings = false }
+                            )
+                        } else {
+                            ASRScreen(
+                                viewModel = viewModel,
+                                onSettingsClick = { showSettings = true }
+                            )
+                        }
                     }
                 }
             }
