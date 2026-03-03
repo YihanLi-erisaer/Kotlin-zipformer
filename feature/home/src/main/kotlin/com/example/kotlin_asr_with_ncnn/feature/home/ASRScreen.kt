@@ -60,7 +60,7 @@ fun ASRScreen(
 
             Spacer(modifier = Modifier.height(36.dp))
 
-            Text(text = "AI model may make mistakes!", style = MaterialTheme.typography.labelSmall)
+            Text(text = "Any AI model may make mistakes!", style = MaterialTheme.typography.labelSmall)
         }
 
         IconButton(
