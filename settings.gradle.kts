@@ -24,7 +24,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "Kotlin-ASR-with-ncnn"
 include(":app")
-include(":feature")
 include(":feature:home")
 include(":feature:settings")
 include(":domain")
