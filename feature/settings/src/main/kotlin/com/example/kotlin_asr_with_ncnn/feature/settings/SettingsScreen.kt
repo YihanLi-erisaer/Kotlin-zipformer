@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     darkTheme: Boolean,
+    appVersion: String,
     onDarkThemeChanged: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
@@ -46,6 +47,23 @@ fun SettingsScreen(
                 Switch(
                     checked = darkTheme,
                     onCheckedChange = onDarkThemeChanged
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "App version",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = appVersion,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }

@@ -18,12 +18,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import com.example.kotlin_asr_with_ncnn.core.media.ModelConfig
 import com.example.kotlin_asr_with_ncnn.core.media.NcnnNativeBridge
 import com.example.kotlin_asr_with_ncnn.core.ui.AppTheme
+import com.example.kotlin_asr_with_ncnn.core.ui.rememberThemeState
 import com.example.kotlin_asr_with_ncnn.feature.home.ASRScreen
 import com.example.kotlin_asr_with_ncnn.feature.home.ASRViewModel
 import com.example.kotlin_asr_with_ncnn.feature.settings.SettingsScreen
@@ -62,14 +61,18 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            var darkTheme by remember { mutableStateOf(themePreferences.darkTheme) }
+            val themeState = rememberThemeState(
+                initialDarkTheme = themePreferences.darkTheme,
+                onThemeChanged = { themePreferences.darkTheme = it }
+            )
             val showSettings by mainUiViewModel.showSettings.collectAsState()
+            val appVersion = remember { getAppVersion() }
 
             BackHandler(enabled = showSettings) {
                 mainUiViewModel.closeSettings()
             }
 
-            AppTheme(darkTheme = darkTheme) {
+            AppTheme(darkTheme = themeState.darkTheme) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     AnimatedContent(
                         targetState = showSettings,
@@ -86,11 +89,9 @@ class MainActivity : ComponentActivity() {
                     ) { isSettings ->
                         if (isSettings) {
                             SettingsScreen(
-                                darkTheme = darkTheme,
-                                onDarkThemeChanged = {
-                                    darkTheme = it
-                                    themePreferences.darkTheme = it
-                                },
+                                darkTheme = themeState.darkTheme,
+                                appVersion = appVersion,
+                                onDarkThemeChanged = { themeState.updateDarkTheme(it) },
                                 onBack = { mainUiViewModel.closeSettings() }
                             )
                         } else {
@@ -139,5 +140,15 @@ class MainActivity : ComponentActivity() {
             this,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getAppVersion(): String {
+        return try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "Unknown"
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to read app version", e)
+            "Unknown"
+        }
     }
 }
