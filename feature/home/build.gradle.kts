@@ -29,7 +29,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:media"))
     implementation(project(":core:ui"))
     implementation(project(":core:common"))
     implementation(project(":domain"))

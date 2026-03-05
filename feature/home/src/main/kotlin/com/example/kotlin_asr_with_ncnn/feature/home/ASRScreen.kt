@@ -1,5 +1,7 @@
 package com.example.kotlin_asr_with_ncnn.feature.home
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.ui.text.AnnotatedString
@@ -18,6 +20,7 @@ fun ASRScreen(
     val uiState by viewModel.uiState.collectAsState()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val outputScrollState = rememberScrollState()
 
     LaunchedEffect(viewModel) {
         viewModel.effect.collectLatest { effect ->
@@ -62,6 +65,9 @@ fun ASRScreen(
                             uiState.isListening && uiState.resultText.isBlank() -> "Recording..."
                             else -> uiState.resultText
                         },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(outputScrollState),
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
