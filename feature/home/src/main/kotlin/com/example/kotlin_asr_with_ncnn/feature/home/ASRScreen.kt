@@ -8,17 +8,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun ASRScreen(
     viewModel: ASRViewModel,
     onSettingsClick: () -> Unit = {}
 ) {
-    val transcription by viewModel.transcriptionState.collectAsState()
-    val isListening by viewModel.isListening.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
     val clipboardManager = LocalClipboardManager.current
-    val resultText = transcription?.text.orEmpty()
-    val canCopy = !isListening && resultText.isNotBlank()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effect.collectLatest { effect ->
+            when (effect) {
+                is ASRContract.Effect.CopyToClipboard -> {
+                    clipboardManager.setText(AnnotatedString(effect.text))
+                }
+                is ASRContract.Effect.ShowMessage -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -29,7 +41,7 @@ fun ASRScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = if (isListening) "Result text" else "Press Start bottom to start",
+                text = if (uiState.isListening) "Result text" else "Press Start bottom to start",
                 style = MaterialTheme.typography.titleMedium
             )
 
@@ -47,8 +59,8 @@ fun ASRScreen(
                 ) {
                     Text(
                         text = when {
-                            isListening && (transcription?.text.isNullOrEmpty()) -> "Recording..."
-                            else -> transcription?.text ?: ""
+                            uiState.isListening && uiState.resultText.isBlank() -> "Recording..."
+                            else -> uiState.resultText
                         },
                         style = MaterialTheme.typography.bodyLarge
                     )
@@ -62,14 +74,14 @@ fun ASRScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = { viewModel.toggleListening() }
+                    onClick = { viewModel.onIntent(ASRContract.Intent.ToggleListening) }
                 ) {
-                    Text(text = if (isListening) "Stop" else "Start")
+                    Text(text = if (uiState.isListening) "Stop" else "Start")
                 }
 
                 Button(
-                    onClick = { clipboardManager.setText(AnnotatedString(resultText)) },
-                    enabled = canCopy
+                    onClick = { viewModel.onIntent(ASRContract.Intent.CopyResultClicked) },
+                    enabled = uiState.canCopy
                 ) {
                     Text(text = "Copy")
                 }
@@ -88,5 +100,12 @@ fun ASRScreen(
         ) {
             Text(text = "⚙", style = MaterialTheme.typography.titleLarge)
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        )
     }
 }

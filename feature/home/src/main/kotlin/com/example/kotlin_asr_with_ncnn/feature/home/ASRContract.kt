@@ -1,25 +1,23 @@
-package com.example.kotlin_asr_with_ncnn.presentation.asr
+package com.example.kotlin_asr_with_ncnn.feature.home
 
 import com.example.kotlin_asr_with_ncnn.domain.model.Transcription
-import com.example.kotlin_asr_with_ncnn.domain.repository.EngineStatus
 
-class ASRContract {
-
-    data class State(
-        val status: EngineStatus = EngineStatus.IDLE,
-        val currentTranscription: Transcription? = null,
-        val isError: Boolean = false,
-        val errorMessage: String? = null
-    )
-
-    sealed class Event {
-        object ToggleListening : Event()
-        object StartListening : Event()
-        object StopListening : Event()
-        data class ErrorOccurred(val message: String) : Event()
+object ASRContract {
+    data class UiState(
+        val isListening: Boolean = false,
+        val transcription: Transcription? = null
+    ) {
+        val resultText: String get() = transcription?.text.orEmpty()
+        val canCopy: Boolean get() = !isListening && resultText.isNotBlank()
     }
 
-    sealed class Effect {
-        data class ShowToast(val message: String) : Effect()
+    sealed interface Intent {
+        data object ToggleListening : Intent
+        data object CopyResultClicked : Intent
+    }
+
+    sealed interface Effect {
+        data class CopyToClipboard(val text: String) : Effect
+        data class ShowMessage(val message: String) : Effect
     }
 }

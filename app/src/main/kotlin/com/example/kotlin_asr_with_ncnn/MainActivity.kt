@@ -35,9 +35,11 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var nativeBridge: NcnnNativeBridge
 
+    @Inject
+    lateinit var themePreferences: ThemePreferences
+
     private val viewModel: ASRViewModel by viewModels()
     private val mainUiViewModel: MainUiViewModel by viewModels()
-    private lateinit var themePreferences: ThemePreferences
 
     // Audio recording permission request
     private val requestPermissionLauncher = registerForActivityResult(
@@ -52,7 +54,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        themePreferences = ThemePreferences(this)
 
         if (hasAudioPermission()) {
             initASRModel()

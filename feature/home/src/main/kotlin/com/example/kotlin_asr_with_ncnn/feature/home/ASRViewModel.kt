@@ -2,14 +2,17 @@ package com.example.kotlin_asr_with_ncnn.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.kotlin_asr_with_ncnn.domain.model.Transcription
 import com.example.kotlin_asr_with_ncnn.domain.usecase.StartASRUseCase
 import com.example.kotlin_asr_with_ncnn.domain.usecase.StopASRUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -19,36 +22,76 @@ class ASRViewModel @Inject constructor(
     private val stopASRUseCase: StopASRUseCase
 ) : ViewModel() {
 
-    private val _transcriptionState = MutableStateFlow<Transcription?>(null)
-    val transcriptionState: StateFlow<Transcription?> = _transcriptionState.asStateFlow()
+    private val _uiState = MutableStateFlow(ASRContract.UiState())
+    val uiState: StateFlow<ASRContract.UiState> = _uiState.asStateFlow()
 
-    private val _isListening = MutableStateFlow(false)
-    val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
+    private val _effect = MutableSharedFlow<ASRContract.Effect>()
+    val effect: SharedFlow<ASRContract.Effect> = _effect.asSharedFlow()
 
     private var collectionJob: Job? = null
 
-    fun toggleListening() {
-        if (_isListening.value) {
+    fun onIntent(intent: ASRContract.Intent) {
+        when (intent) {
+            ASRContract.Intent.ToggleListening -> toggleListening()
+            ASRContract.Intent.CopyResultClicked -> onCopyResultClicked()
+        }
+    }
+
+    private fun toggleListening() {
+        if (_uiState.value.isListening) {
             stopListening()
         } else {
             startListening()
         }
     }
 
+    private fun onCopyResultClicked() {
+        viewModelScope.launch {
+            val state = _uiState.value
+            if (state.isListening) {
+                _effect.emit(ASRContract.Effect.ShowMessage("Stop recording before copying"))
+                return@launch
+            }
+            if (state.resultText.isBlank()) {
+                _effect.emit(ASRContract.Effect.ShowMessage("No result text to copy"))
+                return@launch
+            }
+            _effect.emit(ASRContract.Effect.CopyToClipboard(state.resultText))
+            _effect.emit(ASRContract.Effect.ShowMessage("Copied"))
+        }
+    }
+
     private fun startListening() {
         collectionJob?.cancel()
-        _isListening.value = true
+        _uiState.update { it.copy(isListening = true) }
         collectionJob = viewModelScope.launch {
-            startASRUseCase().collect { transcription ->
-                _transcriptionState.value = transcription
+            runCatching {
+                startASRUseCase().collect { transcription ->
+                    _uiState.update { it.copy(transcription = transcription) }
+                }
+            }.onFailure { throwable ->
+                _uiState.update { it.copy(isListening = false) }
+                _effect.emit(
+                    ASRContract.Effect.ShowMessage(
+                        throwable.message ?: "Failed to start listening"
+                    )
+                )
             }
         }
     }
 
     private fun stopListening() {
         viewModelScope.launch {
-            stopASRUseCase()
-            _isListening.value = false
+            runCatching {
+                stopASRUseCase()
+            }.onFailure { throwable ->
+                _effect.emit(
+                    ASRContract.Effect.ShowMessage(
+                        throwable.message ?: "Failed to stop listening"
+                    )
+                )
+            }
+            _uiState.update { it.copy(isListening = false) }
         }
     }
 
