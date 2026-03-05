@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Kotlin-ASR-with-ncnn</string>
-    <string name="unknown_version">Unknown</string>
+    <string name="unknown_version">未知</string>
 </resources>

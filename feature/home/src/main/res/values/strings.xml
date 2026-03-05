@@ -1,0 +1,15 @@
+<resources>
+    <string name="result_title">Result text</string>
+    <string name="press_start_hint">Press Start button to start</string>
+    <string name="recording">Recording...</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="copy">Copy</string>
+    <string name="ai_mistakes_warning">Any AI model may make mistakes!</string>
+
+    <string name="stop_before_copy">Stop recording before copying</string>
+    <string name="no_text_to_copy">No result text to copy</string>
+    <string name="copied">Copied</string>
+    <string name="failed_start_listening">Failed to start listening</string>
+    <string name="failed_stop_listening">Failed to stop listening</string>
+</resources>

@@ -104,7 +104,7 @@ class ASRRepositoryImpl @Inject constructor(
             // Append full stop when user presses Stop, if there is output and it doesn't already end with .
             val fullText = (accumulatedText.toString() + if (currentUtterance.isNotEmpty()) " $currentUtterance" else "").trim()
             if (fullText.isNotEmpty() && !fullText.endsWith('.')) {
-                val textWithPeriod = "$fullText."
+                val textWithPeriod = "$fullText。"
                 accumulatedText.clear()
                 accumulatedText.append(textWithPeriod)
                 _transcriptionFlow.tryEmit(Transcription("stop", textWithPeriod, 0f, System.currentTimeMillis(), true))

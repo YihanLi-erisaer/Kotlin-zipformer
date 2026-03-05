@@ -1,5 +1,6 @@
 package com.example.kotlin_asr_with_ncnn.feature.home
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.kotlin_asr_with_ncnn.domain.usecase.StartASRUseCase
@@ -18,6 +19,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ASRViewModel @Inject constructor(
+    private val application: Application,
     private val startASRUseCase: StartASRUseCase,
     private val stopASRUseCase: StopASRUseCase
 ) : ViewModel() {
@@ -49,15 +51,23 @@ class ASRViewModel @Inject constructor(
         viewModelScope.launch {
             val state = _uiState.value
             if (state.isListening) {
-                _effect.emit(ASRContract.Effect.ShowMessage("Stop recording before copying"))
+                _effect.emit(
+                    ASRContract.Effect.ShowMessage(
+                        application.getString(R.string.stop_before_copy)
+                    )
+                )
                 return@launch
             }
             if (state.resultText.isBlank()) {
-                _effect.emit(ASRContract.Effect.ShowMessage("No result text to copy"))
+                _effect.emit(
+                    ASRContract.Effect.ShowMessage(
+                        application.getString(R.string.no_text_to_copy)
+                    )
+                )
                 return@launch
             }
             _effect.emit(ASRContract.Effect.CopyToClipboard(state.resultText))
-            _effect.emit(ASRContract.Effect.ShowMessage("Copied"))
+            _effect.emit(ASRContract.Effect.ShowMessage(application.getString(R.string.copied)))
         }
     }
 
@@ -73,7 +83,7 @@ class ASRViewModel @Inject constructor(
                 _uiState.update { it.copy(isListening = false) }
                 _effect.emit(
                     ASRContract.Effect.ShowMessage(
-                        throwable.message ?: "Failed to start listening"
+                        throwable.message ?: application.getString(R.string.failed_start_listening)
                     )
                 )
             }
@@ -87,7 +97,7 @@ class ASRViewModel @Inject constructor(
             }.onFailure { throwable ->
                 _effect.emit(
                     ASRContract.Effect.ShowMessage(
-                        throwable.message ?: "Failed to stop listening"
+                        throwable.message ?: application.getString(R.string.failed_stop_listening)
                     )
                 )
             }

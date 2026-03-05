@@ -1,0 +1,15 @@
+<resources>
+    <string name="result_title">识别结果</string>
+    <string name="press_start_hint">点击开始按钮开始识别</string>
+    <string name="recording">录音中...</string>
+    <string name="start">开始</string>
+    <string name="stop">停止</string>
+    <string name="copy">复制</string>
+    <string name="ai_mistakes_warning">AI 模型可能会出错！</string>
+
+    <string name="stop_before_copy">请先停止录音再复制</string>
+    <string name="no_text_to_copy">没有可复制的文本</string>
+    <string name="copied">已复制</string>
+    <string name="failed_start_listening">启动录音失败</string>
+    <string name="failed_stop_listening">停止录音失败</string>
+</resources>

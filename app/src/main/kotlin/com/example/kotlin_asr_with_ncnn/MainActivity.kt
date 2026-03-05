@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "Unknown"
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to read app version", e)
-            "Unknown"
+            getString(R.string.unknown_version)
         }
     }
 }

@@ -3,6 +3,7 @@ package com.example.kotlin_asr_with_ncnn.feature.home
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.*
@@ -44,7 +45,11 @@ fun ASRScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = if (uiState.isListening) "Result text" else "Press Start bottom to start",
+                text = if (uiState.isListening) {
+                    stringResource(R.string.result_title)
+                } else {
+                    stringResource(R.string.press_start_hint)
+                },
                 style = MaterialTheme.typography.titleMedium
             )
 
@@ -62,7 +67,7 @@ fun ASRScreen(
                 ) {
                     Text(
                         text = when {
-                            uiState.isListening && uiState.resultText.isBlank() -> "Recording..."
+                            uiState.isListening && uiState.resultText.isBlank() -> stringResource(R.string.recording)
                             else -> uiState.resultText
                         },
                         modifier = Modifier
@@ -82,20 +87,26 @@ fun ASRScreen(
                 Button(
                     onClick = { viewModel.onIntent(ASRContract.Intent.ToggleListening) }
                 ) {
-                    Text(text = if (uiState.isListening) "Stop" else "Start")
+                    Text(
+                        text = if (uiState.isListening) {
+                            stringResource(R.string.stop)
+                        } else {
+                            stringResource(R.string.start)
+                        }
+                    )
                 }
 
                 Button(
                     onClick = { viewModel.onIntent(ASRContract.Intent.CopyResultClicked) },
                     enabled = uiState.canCopy
                 ) {
-                    Text(text = "Copy")
+                    Text(text = stringResource(R.string.copy))
                 }
             }
 
             Spacer(modifier = Modifier.height(36.dp))
 
-            Text(text = "Any AI model may make mistakes!", style = MaterialTheme.typography.labelSmall)
+            Text(text = stringResource(R.string.ai_mistakes_warning), style = MaterialTheme.typography.labelSmall)
         }
 
         IconButton(
