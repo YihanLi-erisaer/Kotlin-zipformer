@@ -38,7 +38,8 @@ private object PunctuationHelper {
         return letterCount > 0 && cjkCount.toFloat() / letterCount >= 0.2
     }
 
-    fun getSentenceSeparator(isCJK: Boolean): String = if (isCJK) "。" else ". "
+    /** Space/glue between sentences. Does not include period—that comes from getEndPunctuation. */
+    fun getSentenceSeparator(isCJK: Boolean): String = if (isCJK) "" else " "
     fun getEndPunctuation(isCJK: Boolean): String = if (isCJK) "。" else "."
 }
 
