@@ -41,6 +41,16 @@ private object PunctuationHelper {
     /** Space/glue between sentences. Does not include punctuation—that comes from getEndPunctuation. */
     fun getSentenceSeparator(isCJK: Boolean): String = if (isCJK) "" else " "
 
+    /** Glue between prev and next: always use space when either side involves Latin letters (English). */
+    fun getGlueBetween(prev: String, next: String, isCJK: Boolean): String {
+        val p = prev.trimEnd()
+        val n = next.trimStart()
+        if (p.isEmpty() || n.isEmpty()) return ""
+        fun isLatin(c: Char) = c in 'a'..'z' || c in 'A'..'Z'
+        if (isLatin(p.last()) || isLatin(n.first())) return " "
+        return if (isCJK) "" else " "
+    }
+
     /** Extracts the last segment (content after the last sentence-ending punctuation) for punctuation decisions. */
     fun getLastSegment(accumulated: String): String {
         val trimmed = accumulated.trimEnd()
@@ -112,11 +122,73 @@ private object PunctuationHelper {
 }
 
 private fun buildDisplayWithPartial(accumulated: String, partial: String): String {
-    val combined = accumulated + partial
-    val isCJK = PunctuationHelper.isPrimarilyCJK(combined)
-    val sep = PunctuationHelper.getSentenceSeparator(isCJK)
     val acc = accumulated.trimEnd()
-    return if (acc.isEmpty()) partial else "$acc$sep${partial.trim()}"
+    if (acc.isEmpty()) return partial
+    val combined = acc + partial
+    val isCJK = PunctuationHelper.isPrimarilyCJK(combined)
+    val sep = PunctuationHelper.getGlueBetween(acc, partial.trim(), isCJK)
+    return "$acc$sep${partial.trim()}"
+}
+
+/** Vowels (for word-boundary heuristic: vowel+consonant often starts a new word). */
+private val VOWELS = setOf('a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U')
+
+/** Ensures spaces at CJK-Latin boundaries, CamelCase, and concatenated lowercase words (e.g. hellohellohello). */
+private fun ensureEnglishSpacing(text: String): String {
+    if (text.length < 2) return text
+    fun isLatin(c: Char) = c in 'a'..'z' || c in 'A'..'Z'
+    fun isVowel(c: Char) = c in VOWELS
+    fun isCJKChar(c: Char) = c in '\u4e00'..'\u9fff' || c in '\u3000'..'\u303f' || c in '\uff00'..'\uffef'
+    val result = StringBuilder()
+    var latinRunLen = 0
+    for (i in text.indices) {
+        val prev = if (i > 0) text[i - 1] else null
+        val curr = text[i]
+        if (i > 0) {
+            val needSpace = when {
+                isCJKChar(prev!!) && isLatin(curr) -> true
+                isLatin(prev) && isCJKChar(curr) -> true
+                prev in 'a'..'z' && curr in 'A'..'Z' -> true  // CamelCase
+                // Vowel+consonant boundary: "hellohello" -> "hello hello" (word often ends in vowel, next starts with consonant)
+                isLatin(prev) && isLatin(curr) && isVowel(prev) && !isVowel(curr) && latinRunLen >= 4 -> true
+                else -> false
+            }
+            if (needSpace) {
+                result.append(' ')
+                latinRunLen = 0
+            }
+        }
+        result.append(curr)
+        latinRunLen = if (isLatin(curr)) latinRunLen + 1 else 0
+    }
+    return result.toString()
+}
+
+/** Converts English to sentence case: only the first letter of each sentence is capitalized. */
+private fun toSentenceCase(text: String): String {
+    if (text.isBlank()) return text
+    val sentenceEnders = setOf('。', '.', '?', '!', '？', '！', '…')
+    fun isLatinLetter(c: Char) = c in 'a'..'z' || c in 'A'..'Z'
+    val result = StringBuilder()
+    var nextLatinShouldBeCapital = true
+    for (c in text) {
+        when {
+            c in sentenceEnders -> {
+                result.append(c)
+                nextLatinShouldBeCapital = true
+            }
+            isLatinLetter(c) -> {
+                if (nextLatinShouldBeCapital) {
+                    result.append(c.uppercaseChar())
+                    nextLatinShouldBeCapital = false
+                } else {
+                    result.append(c.lowercaseChar())
+                }
+            }
+            else -> result.append(c)
+        }
+    }
+    return result.toString()
 }
 
 @Singleton
@@ -150,9 +222,8 @@ class ASRRepositoryImpl @Inject constructor(
             if (text.isEmpty()) return@setCallback
 
             val displayText = if (isFinal) {
-                val sep = PunctuationHelper.getSentenceSeparator(
-                    PunctuationHelper.isPrimarilyCJK(accumulatedText.toString() + text)
-                )
+                val combined = accumulatedText.toString() + text
+                val isCJK = PunctuationHelper.isPrimarilyCJK(combined)
                 if (accumulatedText.isNotEmpty()) {
                     val prev = accumulatedText.toString().trimEnd()
                     if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
@@ -161,7 +232,7 @@ class ASRRepositoryImpl @Inject constructor(
                             lastSegment, PunctuationHelper.isPrimarilyCJK(prev)
                         ))
                     }
-                    accumulatedText.append(sep)
+                    accumulatedText.append(PunctuationHelper.getGlueBetween(prev, text.trim(), isCJK))
                 }
                 accumulatedText.append(text.trim())
                 currentUtterance = ""
@@ -175,14 +246,13 @@ class ASRRepositoryImpl @Inject constructor(
                 if (isNewUtterance) {
                     val toAppend = currentUtterance.trim()
                     val isCJK = PunctuationHelper.isPrimarilyCJK(accumulatedText.toString() + toAppend)
-                    val sep = PunctuationHelper.getSentenceSeparator(isCJK)
                     if (accumulatedText.isNotEmpty()) {
                         val prev = accumulatedText.toString().trimEnd()
                         if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
                             val lastSegment = PunctuationHelper.getLastSegment(prev)
                             accumulatedText.append(PunctuationHelper.getEndPunctuation(lastSegment, isCJK))
                         }
-                        accumulatedText.append(sep)
+                        accumulatedText.append(PunctuationHelper.getGlueBetween(prev, toAppend, isCJK))
                     }
                     accumulatedText.append(toAppend)
                     currentUtterance = ""
@@ -196,7 +266,7 @@ class ASRRepositoryImpl @Inject constructor(
 
             val newTranscription = Transcription(
                 id = System.currentTimeMillis().toString(),
-                text = displayText,
+                text = toSentenceCase(ensureEnglishSpacing(displayText)),
                 confidence = confidence,
                 timestamp = System.currentTimeMillis(),
                 isFinal = isFinal
@@ -232,16 +302,16 @@ class ASRRepositoryImpl @Inject constructor(
             nativeBridge.stopInference()
             // Append end punctuation when user presses Stop, if output exists and doesn't already end with one
             val fullText = (accumulatedText.toString() + if (currentUtterance.isNotEmpty()) {
-                val sep = PunctuationHelper.getSentenceSeparator(
-                    PunctuationHelper.isPrimarilyCJK(accumulatedText.toString() + currentUtterance)
-                )
-                sep + currentUtterance.trim()
+                val prev = accumulatedText.toString().trimEnd()
+                val toAppend = currentUtterance.trim()
+                val isCJK = PunctuationHelper.isPrimarilyCJK(prev + toAppend)
+                PunctuationHelper.getGlueBetween(prev, toAppend, isCJK) + toAppend
             } else "").trim()
             if (fullText.isNotEmpty() && !PunctuationHelper.endsWithSentencePunctuation(fullText)) {
                 val isCJK = PunctuationHelper.isPrimarilyCJK(fullText)
                 val lastSegment = PunctuationHelper.getLastSegment(fullText)
                 val endPunct = PunctuationHelper.getEndPunctuation(lastSegment, isCJK)
-                val textWithEnding = "$fullText$endPunct"
+                val textWithEnding = toSentenceCase(ensureEnglishSpacing("$fullText$endPunct"))
                 accumulatedText.clear()
                 accumulatedText.append(textWithEnding)
                 _transcriptionFlow.tryEmit(Transcription("stop", textWithEnding, 0f, System.currentTimeMillis(), true))
