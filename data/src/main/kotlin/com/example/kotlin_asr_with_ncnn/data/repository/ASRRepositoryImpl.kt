@@ -64,16 +64,16 @@ private object PunctuationHelper {
         }
         if (looksLikeExclamation) return if (isCJK) "！" else "!"
 
-        // Question patterns
+        // Question patterns — only when clear interrogative markers exist (avoid over-prediction)
         val looksLikeQuestion = when {
             isCJK -> {
-                // Chinese: interrogative particles at end
+                // Chinese: strong interrogative particles at end (吗/呢 are reliable; 啊 is removed—too many false positives)
                 trimmed.endsWith('吗') || trimmed.endsWith('呢') ||
-                (trimmed.endsWith('啊') && trimmed.length > 1) ||
-                // Interrogative pronouns
+                // Interrogative pronouns (avoid single 几: 几乎/几年 are not questions)
                 trimmed.contains("什么") || trimmed.contains("怎么") || trimmed.contains("怎样") ||
                 trimmed.contains("为什么") || trimmed.contains("为何") || trimmed.contains("哪里") ||
-                trimmed.contains("哪儿") || trimmed.contains("谁") || trimmed.contains("几") ||
+                trimmed.contains("哪儿") || trimmed.contains("谁") ||
+                (trimmed.contains("几") && !trimmed.contains("几乎")) ||  // 几乎 = almost, not question
                 trimmed.contains("多少") || trimmed.contains("是否") || trimmed.contains("能否") ||
                 trimmed.contains("能不能") || trimmed.contains("会不会") || trimmed.contains("是不是") ||
                 trimmed.contains("为何") || trimmed.contains("如何")
