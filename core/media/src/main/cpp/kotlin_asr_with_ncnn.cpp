@@ -210,9 +210,10 @@ Java_com_example_kotlin_1asr_1with_1ncnn_core_media_NcnnNativeBridge_initModelNa
         return JNI_FALSE;
     }
 
-    // config.decoder_config.method = "greedy_search";
-    config.decoder_config.method = "modified_beam_search";
+    config.decoder_config.method = "greedy_search";
     config.decoder_config.num_active_paths = 6;
+    //config.decoder_config.method = "modified_beam_search";
+    //config.decoder_config.num_active_paths = 6;
 
     config.enable_endpoint = true;
     config.endpoint_config.rule1.min_trailing_silence = 1;
