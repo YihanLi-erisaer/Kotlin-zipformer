@@ -15,9 +15,9 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Punctuation handling for ASR output. Detects script (CJK vs Latin) and applies appropriate punctuation. */
+/** Punctuation handling for ASR output. Detects script (CJK vs Latin) and infers appropriate punctuation from text. */
 private object PunctuationHelper {
-    private val SENTENCE_ENDING = setOf('。', '.', '?', '!', '？', '！', '…')
+    private val SENTENCE_ENDING = setOf('。', '.', '?', '!', '？', '！', '…', '，', ',')
 
     fun endsWithSentencePunctuation(text: String): Boolean =
         text.isNotEmpty() && SENTENCE_ENDING.any { text.trimEnd().endsWith(it) }
@@ -38,9 +38,69 @@ private object PunctuationHelper {
         return letterCount > 0 && cjkCount.toFloat() / letterCount >= 0.2
     }
 
-    /** Space/glue between sentences. Does not include period—that comes from getEndPunctuation. */
+    /** Space/glue between sentences. Does not include punctuation—that comes from getEndPunctuation. */
     fun getSentenceSeparator(isCJK: Boolean): String = if (isCJK) "" else " "
-    fun getEndPunctuation(isCJK: Boolean): String = if (isCJK) "。" else "."
+
+    /** Infers sentence-ending punctuation from text content (question, exclamation, comma, or default period). */
+    fun getEndPunctuation(text: String, isCJK: Boolean): String {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return if (isCJK) "。" else "."
+
+        // Exclamation first (e.g. "how amazing" vs "how are you")
+        val looksLikeExclamation = when {
+            isCJK -> {
+                trimmed.startsWith("太") || trimmed.startsWith("真是") ||
+                trimmed.contains("好棒") || trimmed.contains("好啊") || trimmed.contains("好呀") ||
+                trimmed.contains("哇") || trimmed.contains("天呐") || trimmed.contains("天哪") ||
+                trimmed.contains("太棒") || trimmed.contains("太好了") || trimmed.contains("真棒")
+            }
+            else -> {
+                val lower = trimmed.lowercase()
+                lower.startsWith("wow") || lower.startsWith("oh ") || lower.startsWith("so ") ||
+                lower.startsWith("such ") || lower.startsWith("what a ") ||
+                lower.contains("how amazing") || lower.contains("how great") || lower.contains("how wonderful") ||
+                lower.endsWith("!") || lower.contains(" amazing") || lower.contains(" great")
+            }
+        }
+        if (looksLikeExclamation) return if (isCJK) "！" else "!"
+
+        // Question patterns
+        val looksLikeQuestion = when {
+            isCJK -> {
+                // Chinese: interrogative particles at end
+                trimmed.endsWith('吗') || trimmed.endsWith('呢') || trimmed.endsWith('吧') ||
+                (trimmed.endsWith('啊') && trimmed.length > 1) ||
+                // Interrogative pronouns
+                trimmed.contains("什么") || trimmed.contains("怎么") || trimmed.contains("怎样") ||
+                trimmed.contains("为什么") || trimmed.contains("为何") || trimmed.contains("哪里") ||
+                trimmed.contains("哪儿") || trimmed.contains("谁") || trimmed.contains("几") ||
+                trimmed.contains("多少") || trimmed.contains("是否") || trimmed.contains("能否") ||
+                trimmed.contains("能不能") || trimmed.contains("会不会") || trimmed.contains("是不是") ||
+                trimmed.contains("为何") || trimmed.contains("如何")
+            }
+            else -> {
+                // English: question words at start
+                val lower = trimmed.lowercase()
+                lower.startsWith("what ") || lower.startsWith("why ") || lower.startsWith("how ") ||
+                lower.startsWith("when ") || lower.startsWith("where ") || lower.startsWith("who ") ||
+                lower.startsWith("which ") || lower.startsWith("whose ") ||
+                lower.startsWith("is ") || lower.startsWith("are ") || lower.startsWith("can ") ||
+                lower.startsWith("could ") || lower.startsWith("would ") || lower.startsWith("do ") ||
+                lower.startsWith("does ") || lower.startsWith("did ") || lower.endsWith(" right") ||
+                lower.endsWith(" or what")
+            }
+        }
+        if (looksLikeQuestion) return if (isCJK) "？" else "?"
+
+        // Short fragment: use comma when text is very short (possible mid-sentence pause)
+        val wordCount = trimmed.split(Regex("\\s+")).count { it.isNotEmpty() }
+        val charCount = trimmed.length
+        val isShortFragment = if (isCJK) charCount <= 4 else wordCount <= 2
+        if (isShortFragment) return if (isCJK) "，" else ", "
+
+        // Default: period
+        return if (isCJK) "。" else "."
+    }
 }
 
 private fun buildDisplayWithPartial(accumulated: String, partial: String): String {
@@ -89,7 +149,7 @@ class ASRRepositoryImpl @Inject constructor(
                     val prev = accumulatedText.toString().trimEnd()
                     if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
                         accumulatedText.append(PunctuationHelper.getEndPunctuation(
-                            PunctuationHelper.isPrimarilyCJK(prev)
+                            prev, PunctuationHelper.isPrimarilyCJK(prev)
                         ))
                     }
                     accumulatedText.append(sep)
@@ -110,7 +170,7 @@ class ASRRepositoryImpl @Inject constructor(
                     if (accumulatedText.isNotEmpty()) {
                         val prev = accumulatedText.toString().trimEnd()
                         if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
-                            accumulatedText.append(PunctuationHelper.getEndPunctuation(isCJK))
+                            accumulatedText.append(PunctuationHelper.getEndPunctuation(prev, isCJK))
                         }
                         accumulatedText.append(sep)
                     }
@@ -169,7 +229,7 @@ class ASRRepositoryImpl @Inject constructor(
             } else "").trim()
             if (fullText.isNotEmpty() && !PunctuationHelper.endsWithSentencePunctuation(fullText)) {
                 val isCJK = PunctuationHelper.isPrimarilyCJK(fullText)
-                val endPunct = PunctuationHelper.getEndPunctuation(isCJK)
+                val endPunct = PunctuationHelper.getEndPunctuation(fullText, isCJK)
                 val textWithEnding = "$fullText$endPunct"
                 accumulatedText.clear()
                 accumulatedText.append(textWithEnding)
