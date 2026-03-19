@@ -41,6 +41,14 @@ private object PunctuationHelper {
     /** Space/glue between sentences. Does not include punctuation—that comes from getEndPunctuation. */
     fun getSentenceSeparator(isCJK: Boolean): String = if (isCJK) "" else " "
 
+    /** Extracts the last segment (content after the last sentence-ending punctuation) for punctuation decisions. */
+    fun getLastSegment(accumulated: String): String {
+        val trimmed = accumulated.trimEnd()
+        if (trimmed.isEmpty()) return ""
+        val lastPunctIdx = trimmed.indexOfLast { SENTENCE_ENDING.contains(it) }
+        return if (lastPunctIdx >= 0) trimmed.substring(lastPunctIdx + 1).trim() else trimmed
+    }
+
     /** Infers sentence-ending punctuation from text content (question, exclamation, comma, or default period). */
     fun getEndPunctuation(text: String, isCJK: Boolean): String {
         val trimmed = text.trim()
@@ -95,7 +103,7 @@ private object PunctuationHelper {
         // Short fragment: use comma when text is very short (possible mid-sentence pause)
         val wordCount = trimmed.split(Regex("\\s+")).count { it.isNotEmpty() }
         val charCount = trimmed.length
-        val isShortFragment = if (isCJK) charCount <= 6 else wordCount <= 5
+        val isShortFragment = if (isCJK) charCount <= 8 else wordCount <= 5
         if (isShortFragment) return if (isCJK) "，" else ", "
 
         // Default: period
@@ -148,8 +156,9 @@ class ASRRepositoryImpl @Inject constructor(
                 if (accumulatedText.isNotEmpty()) {
                     val prev = accumulatedText.toString().trimEnd()
                     if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
+                        val lastSegment = PunctuationHelper.getLastSegment(prev)
                         accumulatedText.append(PunctuationHelper.getEndPunctuation(
-                            prev, PunctuationHelper.isPrimarilyCJK(prev)
+                            lastSegment, PunctuationHelper.isPrimarilyCJK(prev)
                         ))
                     }
                     accumulatedText.append(sep)
@@ -170,7 +179,8 @@ class ASRRepositoryImpl @Inject constructor(
                     if (accumulatedText.isNotEmpty()) {
                         val prev = accumulatedText.toString().trimEnd()
                         if (!PunctuationHelper.endsWithSentencePunctuation(prev)) {
-                            accumulatedText.append(PunctuationHelper.getEndPunctuation(prev, isCJK))
+                            val lastSegment = PunctuationHelper.getLastSegment(prev)
+                            accumulatedText.append(PunctuationHelper.getEndPunctuation(lastSegment, isCJK))
                         }
                         accumulatedText.append(sep)
                     }
@@ -229,7 +239,8 @@ class ASRRepositoryImpl @Inject constructor(
             } else "").trim()
             if (fullText.isNotEmpty() && !PunctuationHelper.endsWithSentencePunctuation(fullText)) {
                 val isCJK = PunctuationHelper.isPrimarilyCJK(fullText)
-                val endPunct = PunctuationHelper.getEndPunctuation(fullText, isCJK)
+                val lastSegment = PunctuationHelper.getLastSegment(fullText)
+                val endPunct = PunctuationHelper.getEndPunctuation(lastSegment, isCJK)
                 val textWithEnding = "$fullText$endPunct"
                 accumulatedText.clear()
                 accumulatedText.append(textWithEnding)
