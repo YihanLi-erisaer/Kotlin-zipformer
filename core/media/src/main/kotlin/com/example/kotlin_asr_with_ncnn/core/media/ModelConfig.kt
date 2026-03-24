@@ -9,5 +9,7 @@ data class ModelConfig(
     val joinerBin: String,
     val tokens: String,
     val numThreads: Int = 4,
-    val useVulkanCompute: Boolean = true
+    val useVulkanCompute: Boolean = true,
+    /** When false (default), uses greedy search; when true, modified beam search. */
+    val useBeamSearch: Boolean = false
 )

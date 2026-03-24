@@ -65,12 +65,21 @@ class NcnnNativeBridge @Inject constructor() {
                 config.joinerBin,
                 config.tokens,
                 config.numThreads,
-                config.useVulkanCompute
+                config.useVulkanCompute,
+                config.useBeamSearch
             )
             if (success) {
                 isModelInitialized.set(true)
             }
             return success
+        }
+    }
+
+    fun releaseModel() {
+        stopInference()
+        synchronized(this) {
+            releaseModelNative()
+            isModelInitialized.set(false)
         }
     }
 
@@ -84,8 +93,11 @@ class NcnnNativeBridge @Inject constructor() {
         joinerBin: String,
         tokens: String,
         numThreads: Int,
-        useVulkan: Boolean
+        useVulkan: Boolean,
+        useBeamSearch: Boolean
     ): Boolean
+
+    private external fun releaseModelNative()
 
     external fun startInference()
     external fun stopInference()

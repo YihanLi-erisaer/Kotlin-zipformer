@@ -143,7 +143,8 @@ Java_com_example_kotlin_1asr_1with_1ncnn_core_media_NcnnNativeBridge_initModelNa
         jstring encoder_param, jstring encoder_bin,
         jstring decoder_param, jstring decoder_bin,
         jstring joiner_param, jstring joiner_bin,
-        jstring tokens, jint num_threads, jboolean use_vulkan) {
+        jstring tokens, jint num_threads, jboolean use_vulkan,
+        jboolean use_beam_search) {
 
     std::lock_guard<std::mutex> lock(g_state_mutex);
     __android_log_print(ANDROID_LOG_INFO, TAG, "Initializing Model...");
@@ -210,10 +211,13 @@ Java_com_example_kotlin_1asr_1with_1ncnn_core_media_NcnnNativeBridge_initModelNa
         return JNI_FALSE;
     }
 
-    config.decoder_config.method = "greedy_search";
-    config.decoder_config.num_active_paths = 6;
-    //config.decoder_config.method = "modified_beam_search";
-    //config.decoder_config.num_active_paths = 6;
+    if (use_beam_search) {
+        config.decoder_config.method = "modified_beam_search";
+        config.decoder_config.num_active_paths = 6;
+    } else {
+        config.decoder_config.method = "greedy_search";
+        config.decoder_config.num_active_paths = 4;
+    }
 
     config.enable_endpoint = true;
     config.endpoint_config.rule1.min_trailing_silence = 1.1;
@@ -249,6 +253,37 @@ Java_com_example_kotlin_1asr_1with_1ncnn_core_media_NcnnNativeBridge_initModelNa
         g_status = ERROR;
         return JNI_FALSE;
     }
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_kotlin_1asr_1with_1ncnn_core_media_NcnnNativeBridge_releaseModelNative(JNIEnv* env, jobject thiz) {
+    {
+        std::lock_guard<std::mutex> t_lock(g_thread_mutex);
+        {
+            std::lock_guard<std::mutex> lock(g_state_mutex);
+            if (g_is_running) {
+                g_is_running = false;
+            }
+        }
+        g_audio_cv.notify_all();
+        if (g_inference_thread.joinable()) {
+            g_inference_thread.join();
+        }
+    }
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    {
+        std::lock_guard<std::mutex> audio_lock(g_audio_mutex);
+        while (!g_audio_queue.empty()) {
+            g_audio_queue.pop();
+        }
+        g_input_finished = false;
+    }
+    g_flush_done = false;
+    if (g_recognizer) {
+        delete g_recognizer;
+        g_recognizer = nullptr;
+    }
+    g_status = IDLE;
 }
 
 JNIEXPORT void JNICALL

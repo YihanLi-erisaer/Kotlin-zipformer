@@ -12,8 +12,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     darkTheme: Boolean,
+    useBeamSearch: Boolean,
     appVersion: String,
     onDarkThemeChanged: (Boolean) -> Unit,
+    onUseBeamSearchChanged: (Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -48,6 +50,30 @@ fun SettingsScreen(
                 Switch(
                     checked = darkTheme,
                     onCheckedChange = onDarkThemeChanged
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.beam_search),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = stringResource(R.string.beam_search_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = useBeamSearch,
+                    onCheckedChange = onUseBeamSearchChanged
                 )
             }
 

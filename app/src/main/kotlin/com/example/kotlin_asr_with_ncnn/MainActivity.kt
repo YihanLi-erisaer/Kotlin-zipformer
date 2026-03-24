@@ -16,10 +16,13 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.example.kotlin_asr_with_ncnn.core.media.ModelConfig
 import com.example.kotlin_asr_with_ncnn.core.media.NcnnNativeBridge
@@ -30,6 +33,7 @@ import com.example.kotlin_asr_with_ncnn.feature.home.ASRViewModel
 import com.example.kotlin_asr_with_ncnn.feature.settings.SettingsScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -51,7 +55,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            initASRModel()
+            lifecycleScope.launch {
+                val beam = themePreferences.useBeamSearchFlow.first()
+                initASRModel(beam)
+            }
         } else {
             Log.e("MainActivity", "Audio recording permission denied")
             mainUiViewModel.setModelInitResult(success = false, "Microphone permission required")
@@ -62,13 +69,33 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (hasAudioPermission()) {
-            initASRModel()
+            lifecycleScope.launch {
+                val beam = themePreferences.useBeamSearchFlow.first()
+                initASRModel(beam)
+            }
         } else {
             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
 
         setContent {
             val darkTheme by themePreferences.darkThemeFlow.collectAsState(initial = false)
+            val useBeamSearch by themePreferences.useBeamSearchFlow.collectAsState(initial = false)
+            val modelInitState by mainUiViewModel.modelInitState.collectAsState()
+            var decoderModeSynced by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(useBeamSearch, modelInitState) {
+                if (modelInitState !is ModelInitState.Ready) return@LaunchedEffect
+                val synced = decoderModeSynced
+                if (synced == null) {
+                    decoderModeSynced = useBeamSearch
+                    return@LaunchedEffect
+                }
+                if (synced == useBeamSearch) return@LaunchedEffect
+                decoderModeSynced = useBeamSearch
+                if (hasAudioPermission()) {
+                    nativeBridge.releaseModel()
+                    initASRModel(useBeamSearch)
+                }
+            }
             val scope = rememberCoroutineScope()
             val themeState = rememberThemeState(
                 initialDarkTheme = darkTheme,
@@ -99,12 +126,13 @@ class MainActivity : ComponentActivity() {
                         if (isSettings) {
                             SettingsScreen(
                                 darkTheme = themeState.darkTheme,
+                                useBeamSearch = useBeamSearch,
                                 appVersion = appVersion,
                                 onDarkThemeChanged = { themeState.updateDarkTheme(it) },
+                                onUseBeamSearchChanged = { scope.launch { themePreferences.setUseBeamSearch(it) } },
                                 onBack = { mainUiViewModel.closeSettings() }
                             )
                         } else {
-                            val modelInitState by mainUiViewModel.modelInitState.collectAsState()
                             ASRScreen(
                                 viewModel = viewModel,
                                 isModelLoading = modelInitState is ModelInitState.Loading,
@@ -118,7 +146,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initASRModel() {
+    private fun initASRModel(useBeamSearch: Boolean) {
         lifecycleScope.launch(Dispatchers.Default) {
             try {
                 val modelConfig = ModelConfig(
@@ -130,7 +158,8 @@ class MainActivity : ComponentActivity() {
                     joinerBin = "joiner.bin",
                     tokens = "tokens.txt",
                     numThreads = 4,
-                    useVulkanCompute = false
+                    useVulkanCompute = false,
+                    useBeamSearch = useBeamSearch
                 )
                 Log.d("MainActivity", "Attempting to initialize native ASR model (background)...")
                 val success = nativeBridge.initModel(assets, modelConfig)
