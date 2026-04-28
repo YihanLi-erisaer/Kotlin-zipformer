@@ -11,12 +11,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,6 +40,13 @@ class LlmModelManager @Inject constructor(
 
     /** True while JNI is inside ncnn model load. Not held under [mutex] — see [loadInternal]. */
     private val loadNativeInProgress = AtomicBoolean(false)
+
+    /** True while [downloadModel] is in its IO section (used to serialize delete vs download). */
+    private val downloadIoInProgress = AtomicBoolean(false)
+
+    private val downloadCancelled = AtomicBoolean(false)
+
+    private val activeDownloadConnection = AtomicReference<HttpURLConnection?>(null)
 
     private val _state = MutableStateFlow<LlmModelState>(LlmModelState.NotDownloaded)
     val state: StateFlow<LlmModelState> = _state.asStateFlow()
@@ -60,80 +70,123 @@ class LlmModelManager @Inject constructor(
         return true
     }
 
-    suspend fun downloadModel(context: Context) {
-        mutex.withLock {
-            if (_state.value is LlmModelState.Downloading) return
-            downloadInternal(context)
+    /**
+     * Aborts an in-progress [downloadModel]. Sets [downloadCancelled], disconnects the active
+     * HTTP connection, and leaves partial `.tmp` files removed. Final state is [LlmModelState.NotDownloaded].
+     */
+    fun cancelDownload() {
+        downloadCancelled.set(true)
+        activeDownloadConnection.getAndSet(null)?.disconnect()
+        if (_state.value is LlmModelState.Downloading) {
+            _state.value = LlmModelState.NotDownloaded
         }
     }
 
-    private suspend fun downloadInternal(context: Context) {
-        if (loadNativeInProgress.get()) {
-            Log.w(TAG, "downloadModel skipped: LLM native load in progress")
-            return
+    suspend fun downloadModel(context: Context) {
+        mutex.withLock {
+            if (_state.value is LlmModelState.Downloading) return
+            if (downloadIoInProgress.get()) return
+            if (loadNativeInProgress.get()) {
+                Log.w(TAG, "downloadModel skipped: LLM native load in progress")
+                return
+            }
+            if (isModelDownloaded(context)) {
+                _state.value = LlmModelState.Downloaded
+                return
+            }
+            downloadCancelled.set(false)
+            _state.value = LlmModelState.Downloading(0f)
         }
+
         val dir = getModelDirectory(context)
-        if (isModelDownloaded(context)) {
-            _state.value = LlmModelState.Downloaded
-            return
-        }
-
-        _state.value = LlmModelState.Downloading(0f)
-
+        downloadIoInProgress.set(true)
         try {
-            withContext(Dispatchers.IO) {
-                if (!dir.exists()) dir.mkdirs()
+            try {
+                withContext(Dispatchers.IO) {
+                    if (!dir.exists()) dir.mkdirs()
 
-                var totalExpected = 0L
-                for (part in MODEL_PARTS) {
-                    val len = probeContentLength(URL(MODEL_BASE + part.remoteName))
-                    if (len > 0) totalExpected += len
-                }
-                if (totalExpected <= 0L) totalExpected = ESTIMATED_TOTAL_BYTES
+                    var totalExpected = 0L
+                    for (part in MODEL_PARTS) {
+                        if (downloadCancelled.get()) throw DownloadCancelledException()
+                        val len = probeContentLength(URL(MODEL_BASE + part.remoteName))
+                        if (len > 0) totalExpected += len
+                    }
+                    if (totalExpected <= 0L) totalExpected = ESTIMATED_TOTAL_BYTES
 
-                var doneBytes = 0L
-                for (part in MODEL_PARTS) {
-                    val dest = File(dir, part.localName)
-                    if (dest.exists() && dest.length() > 0L) {
+                    var doneBytes = 0L
+                    for (part in MODEL_PARTS) {
+                        if (downloadCancelled.get()) throw DownloadCancelledException()
+
+                        val dest = File(dir, part.localName)
+                        if (dest.exists() && dest.length() > 0L) {
+                            doneBytes += dest.length()
+                            _state.value = LlmModelState.Downloading(
+                                (doneBytes.toFloat() / totalExpected.toFloat()).coerceIn(0f, 1f),
+                            )
+                            continue
+                        }
+                        val tmp = File(dir, "${part.localName}.tmp")
+                        if (tmp.exists()) tmp.delete()
+                        val url = URL(MODEL_BASE + part.remoteName)
+                        downloadOneFile(url, tmp, dest) { receivedInPart ->
+                            if (downloadCancelled.get()) throw DownloadCancelledException()
+                            val overall = doneBytes + receivedInPart
+                            _state.value = LlmModelState.Downloading(
+                                (overall.toFloat() / totalExpected.toFloat()).coerceIn(0f, 1f),
+                            )
+                        }
                         doneBytes += dest.length()
-                        _state.value = LlmModelState.Downloading(
-                            (doneBytes.toFloat() / totalExpected.toFloat()).coerceIn(0f, 1f),
-                        )
-                        continue
                     }
-                    val tmp = File(dir, "${part.localName}.tmp")
-                    if (tmp.exists()) tmp.delete()
-                    val url = URL(MODEL_BASE + part.remoteName)
-                    downloadOneFile(url, tmp, dest) { receivedInPart ->
-                        val overall = doneBytes + receivedInPart
-                        _state.value = LlmModelState.Downloading(
-                            (overall.toFloat() / totalExpected.toFloat()).coerceIn(0f, 1f),
-                        )
+                }
+                mutex.withLock {
+                    if (!downloadCancelled.get()) {
+                        _state.value = LlmModelState.Downloaded
+                        Log.i(TAG, "ncnn LLM assets downloaded under ${dir.absolutePath}")
+                    } else {
+                        _state.value = LlmModelState.NotDownloaded
                     }
-                    doneBytes += dest.length()
+                }
+            } catch (_: DownloadCancelledException) {
+                Log.i(TAG, "LLM model download cancelled")
+                mutex.withLock {
+                    _state.value = LlmModelState.NotDownloaded
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                mutex.withLock {
+                    if (downloadCancelled.get()) {
+                        _state.value = LlmModelState.NotDownloaded
+                    } else {
+                        _state.value = LlmModelState.Error("Download failed: ${e.message}")
+                    }
                 }
             }
-            _state.value = LlmModelState.Downloaded
-            Log.i(TAG, "ncnn LLM assets downloaded under ${dir.absolutePath}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Download failed", e)
-            _state.value = LlmModelState.Error("Download failed: ${e.message}")
+        } finally {
+            downloadIoInProgress.set(false)
+            activeDownloadConnection.set(null)
         }
     }
 
     private fun probeContentLength(url: URL): Long {
         var conn: HttpURLConnection? = null
         return try {
+            if (downloadCancelled.get()) throw DownloadCancelledException()
             conn = url.openConnection() as HttpURLConnection
+            activeDownloadConnection.set(conn)
             conn.requestMethod = "HEAD"
             conn.connectTimeout = 30_000
             conn.readTimeout = 30_000
             conn.connect()
+            if (downloadCancelled.get()) throw DownloadCancelledException()
             val n = conn.contentLengthLong
             if (n > 0) n else 0L
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (downloadCancelled.get()) throw DownloadCancelledException(e)
             0L
         } finally {
+            if (conn != null) {
+                activeDownloadConnection.compareAndSet(conn, null)
+            }
             conn?.disconnect()
         }
     }
@@ -148,32 +201,62 @@ class LlmModelManager @Inject constructor(
             onDelta(dest.length())
             return
         }
+        if (downloadCancelled.get()) throw DownloadCancelledException()
+
+        if (tmp.exists()) tmp.delete()
+
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 60_000
-        conn.readTimeout = 60_000
-        conn.connect()
-        if (conn.responseCode !in 200..299) {
+        activeDownloadConnection.set(conn)
+        try {
+            conn.connectTimeout = 60_000
+            conn.readTimeout = 60_000
+            conn.connect()
+            if (conn.responseCode !in 200..299) {
+                throw IllegalStateException("HTTP ${conn.responseCode} for $url")
+            }
+            var received = 0L
+            conn.inputStream.use { input ->
+                FileOutputStream(tmp).use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        if (downloadCancelled.get()) {
+                            throw DownloadCancelledException()
+                        }
+                        val read = try {
+                            input.read(buffer)
+                        } catch (e: IOException) {
+                            if (downloadCancelled.get()) throw DownloadCancelledException(e)
+                            throw e
+                        }
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        received += read
+                        onDelta(received)
+                    }
+                }
+            }
+            if (downloadCancelled.get()) {
+                if (tmp.exists()) tmp.delete()
+                throw DownloadCancelledException()
+            }
+            if (!tmp.renameTo(dest)) {
+                throw IllegalStateException("rename ${tmp.name} -> ${dest.name} failed")
+            }
+        } finally {
+            activeDownloadConnection.compareAndSet(conn, null)
             conn.disconnect()
-            throw IllegalStateException("HTTP ${conn.responseCode} for $url")
-        }
-        var received = 0L
-        conn.inputStream.use { input ->
-            FileOutputStream(tmp).use { output ->
-                val buffer = ByteArray(128 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    output.write(buffer, 0, read)
-                    received += read
-                    onDelta(received)
+            if (downloadCancelled.get() && tmp.exists() && !dest.exists()) {
+                try {
+                    tmp.delete()
+                } catch (_: Exception) {
                 }
             }
         }
-        conn.disconnect()
-        if (!tmp.renameTo(dest)) {
-            throw IllegalStateException("rename ${tmp.name} -> ${dest.name} failed")
-        }
     }
+
+    private class DownloadCancelledException(
+        cause: Throwable? = null,
+    ) : Exception("Download cancelled", cause)
 
     suspend fun loadModel(context: Context, nThreads: Int = DEFAULT_LOAD_THREADS) {
         loadInternal(context, nThreads)
@@ -190,6 +273,10 @@ class LlmModelManager @Inject constructor(
                 }
                 LlmModelState.Loading -> {
                     Log.d(TAG, "loadModel: another load in progress, skipping duplicate call")
+                    return
+                }
+                is LlmModelState.Downloading -> {
+                    Log.d(TAG, "loadModel: download in progress, skipping")
                     return
                 }
                 else -> Unit
@@ -227,6 +314,12 @@ class LlmModelManager @Inject constructor(
     }
 
     suspend fun unloadModel(context: Context) {
+        cancelDownload()
+        var waited = 0
+        while (downloadIoInProgress.get() && waited < 600) {
+            delay(10)
+            waited++
+        }
         mutex.withLock {
             bridge.abort()
             bridge.releaseModel()
@@ -236,6 +329,12 @@ class LlmModelManager @Inject constructor(
     }
 
     suspend fun deleteDownloadedModel(context: Context) {
+        cancelDownload()
+        var waited = 0
+        while (downloadIoInProgress.get() && waited < 600) {
+            delay(10)
+            waited++
+        }
         mutex.withLock {
             if (loadNativeInProgress.get()) {
                 Log.w(TAG, "deleteDownloadedModel skipped: LLM load in progress")

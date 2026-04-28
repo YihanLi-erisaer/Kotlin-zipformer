@@ -22,6 +22,7 @@
     <string name="summary_cancel">Cancel</string>
     <string name="summary_copy">Copy Summary</string>
     <string name="summary_download_model">Download AI Model</string>
+    <string name="summary_cancel_download">Stop download</string>
     <string name="summary_downloading">Downloading model… %1$d%%</string>
     <string name="summary_loading_model">Loading AI model…</string>
     <string name="summary_delete_model">Delete model</string>

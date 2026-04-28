@@ -22,6 +22,7 @@
     <string name="summary_cancel">取消</string>
     <string name="summary_copy">复制总结</string>
     <string name="summary_download_model">下载 AI 模型</string>
+    <string name="summary_cancel_download">停止下载</string>
     <string name="summary_downloading">正在下载模型… %1$d%%</string>
     <string name="summary_loading_model">正在加载 AI 模型…</string>
     <string name="summary_delete_model">删除本地模型</string>

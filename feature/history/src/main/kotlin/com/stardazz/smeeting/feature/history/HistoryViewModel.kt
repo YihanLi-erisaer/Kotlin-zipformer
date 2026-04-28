@@ -105,6 +105,10 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
+    fun cancelLlmDownload() {
+        llmModelManager.cancelDownload()
+    }
+
     fun deleteLlmModelFiles(context: android.content.Context) {
         viewModelScope.launch {
             cancelSummarize()

@@ -225,6 +225,7 @@ fun HistoryScreen(
                     onSummarize = { viewModel.summarize(entry) },
                     onCancelSummarize = { viewModel.cancelSummarize() },
                     onDownloadModel = { viewModel.downloadLlmModel(context) },
+                    onCancelDownload = { viewModel.cancelLlmDownload() },
                     onCopySummary = { text ->
                         copyToClipboard(context, text)
                         scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
@@ -457,6 +458,7 @@ private fun HistoryEntryDetail(
     onSummarize: () -> Unit,
     onCancelSummarize: () -> Unit,
     onDownloadModel: () -> Unit,
+    onCancelDownload: () -> Unit,
     onCopySummary: (String) -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -548,6 +550,7 @@ private fun HistoryEntryDetail(
             onSummarize = onSummarize,
             onCancelSummarize = onCancelSummarize,
             onDownloadModel = onDownloadModel,
+            onCancelDownload = onCancelDownload,
             onCopySummary = {
                 val raw = when {
                     isSummarizing && streamingText.isNotEmpty() -> streamingText
@@ -570,6 +573,7 @@ private fun SummarizeActionBar(
     onSummarize: () -> Unit,
     onCancelSummarize: () -> Unit,
     onDownloadModel: () -> Unit,
+    onCancelDownload: () -> Unit,
     onCopySummary: () -> Unit,
 ) {
     Column(
@@ -609,6 +613,9 @@ private fun SummarizeActionBar(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+                OutlinedButton(onClick = onCancelDownload) {
+                    Text(stringResource(R.string.summary_cancel_download))
                 }
             }
             llmState is LlmModelState.Loading -> {
