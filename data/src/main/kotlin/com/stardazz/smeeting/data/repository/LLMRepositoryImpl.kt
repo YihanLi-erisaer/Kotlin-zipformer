@@ -41,20 +41,20 @@ class LLMRepositoryImpl @Inject constructor(
 
             try {
                 val prompt = buildPrompt(text)
-                var accumulated = ""
+                val sb = StringBuilder()
 
                 val collector = launch {
                     bridge.tokenFlow().collect { token ->
-                        accumulated += token
-                        send(accumulated)
+                        sb.append(token)
+                        send(sb.toString())
                     }
                 }
 
                 bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
 
                 collector.cancel()
-                if (accumulated.isNotEmpty()) {
-                    send(accumulated)
+                if (sb.isNotEmpty()) {
+                    send(sb.toString())
                 }
             } finally {
                 coordinator.release()
