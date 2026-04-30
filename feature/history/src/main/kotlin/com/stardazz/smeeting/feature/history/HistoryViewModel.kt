@@ -1,4 +1,4 @@
-package com.stardazz.smeeting.feature.history
+﻿package com.stardazz.smeeting.feature.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -33,11 +33,11 @@ class HistoryViewModel @Inject constructor(
     private val llmModelManager: LlmModelManager,
 ) : ViewModel() {
 
-    val entries: StateFlow<List<TranscriptionHistoryEntry>> =
+    val entries: StateFlow<List<TranscriptionHistoryEntry>?> =
         observeTranscriptionHistoryUseCase().stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            emptyList(),
+            null,
         )
 
     val llmState: StateFlow<LlmModelState> = llmModelManager.state

@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import android.os.SystemClock
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -97,6 +98,11 @@ fun HistoryScreen(
     onBack: () -> Unit,
 ) {
     val entries by viewModel.entries.collectAsState()
+    val entryList = entries ?: emptyList()
+    val isLoadingEntries = entries == null
+    var keepLoadingVisible by remember { mutableStateOf(true) }
+    var loadingStartMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    val showLoadingEntries = isLoadingEntries || keepLoadingVisible
     val llmState by viewModel.llmState.collectAsState()
     val summarizingEntryId by viewModel.summarizingEntryId.collectAsState()
     val streamingText by viewModel.streamingText.collectAsState()
@@ -125,7 +131,7 @@ fun HistoryScreen(
     var expandBias by remember { mutableFloatStateOf(0f) }
     var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val listState = rememberLazyListState()
-    val selectedEntry = entries.firstOrNull { it.id == selectedEntryId }
+    val selectedEntry = entryList.firstOrNull { it.id == selectedEntryId }
     val isShowingDetail = selectedEntry != null
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingEntryId by remember { mutableStateOf<String?>(null) }
@@ -146,6 +152,18 @@ fun HistoryScreen(
             val duration = mp.duration.toLong()
             playbackDurationMs = if (duration > 0L) duration else playbackDurationMs
             delay(120L)
+        }
+    }
+
+    LaunchedEffect(isLoadingEntries) {
+        if (isLoadingEntries) {
+            loadingStartMs = SystemClock.elapsedRealtime()
+            keepLoadingVisible = true
+        } else {
+            val elapsed = SystemClock.elapsedRealtime() - loadingStartMs
+            val remaining = (MIN_LOADING_VISIBLE_MS - elapsed).coerceAtLeast(0L)
+            if (remaining > 0L) delay(remaining)
+            keepLoadingVisible = false
         }
     }
 
@@ -333,7 +351,16 @@ fun HistoryScreen(
                         showDeleteAudioDialog = true
                     },
                 )
-            } else if (entries.isEmpty()) {
+            } else if (showLoadingEntries) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (entryList.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -356,7 +383,7 @@ fun HistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
-                        items = entries,
+                        items = entryList,
                         key = { it.id },
                     ) { item ->
                         HistoryEntryRow(
@@ -868,6 +895,7 @@ private fun formatPlaybackTime(millis: Long): String {
 }
 
 private const val AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 120
+private const val MIN_LOADING_VISIBLE_MS = 500L
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
