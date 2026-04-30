@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.data.repository
+package com.stardazz.smeeting.data.repository
 
 import com.stardazz.smeeting.data.db.TranscriptionHistoryDao
 import com.stardazz.smeeting.data.db.TranscriptionHistoryEntity

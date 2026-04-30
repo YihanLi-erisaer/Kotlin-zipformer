@@ -1,8 +1,9 @@
-﻿package com.stardazz.smeeting.feature.history
+package com.stardazz.smeeting.feature.history
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedContent
@@ -52,6 +53,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -85,6 +87,7 @@ import com.stardazz.smeeting.core.startup.LlmModelState
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import java.io.File
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -125,12 +128,43 @@ fun HistoryScreen(
     val isShowingDetail = selectedEntry != null
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingEntryId by remember { mutableStateOf<String?>(null) }
+    var playbackPositionMs by remember { mutableStateOf(0L) }
+    var playbackDurationMs by remember { mutableStateOf(0L) }
 
     DisposableEffect(Unit) {
         onDispose {
             mediaPlayer?.release()
             mediaPlayer = null
         }
+    }
+
+    LaunchedEffect(playingEntryId, mediaPlayer) {
+        while (playingEntryId != null && mediaPlayer != null) {
+            val mp = mediaPlayer ?: break
+            playbackPositionMs = mp.currentPosition.toLong().coerceAtLeast(0L)
+            val duration = mp.duration.toLong()
+            playbackDurationMs = if (duration > 0L) duration else playbackDurationMs
+            delay(120L)
+        }
+    }
+
+    LaunchedEffect(selectedEntry?.id, selectedEntry?.audioFilePath) {
+        val path = selectedEntry?.audioFilePath
+        if (path.isNullOrEmpty()) {
+            playbackDurationMs = 0L
+            playbackPositionMs = 0L
+            return@LaunchedEffect
+        }
+        if (playingEntryId != selectedEntry?.id) {
+            playbackPositionMs = 0L
+        }
+        playbackDurationMs = runCatching {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            durationStr?.toLongOrNull() ?: 0L
+        }.getOrDefault(0L).coerceAtLeast(0L)
     }
 
     Scaffold(
@@ -243,6 +277,8 @@ fun HistoryScreen(
                         scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
                     },
                     isAudioPlaying = playingEntryId == entry.id,
+                    playbackPositionMs = playbackPositionMs,
+                    playbackDurationMs = playbackDurationMs,
                     onToggleAudio = {
                         val audioPath = entry.audioFilePath
                         if (!audioPath.isNullOrEmpty()) {
@@ -261,8 +297,12 @@ fun HistoryScreen(
                                         setDataSource(audioPath)
                                         setOnCompletionListener {
                                             playingEntryId = null
+                                            playbackPositionMs = 0L
                                         }
                                         prepare()
+                                        if (playbackPositionMs > 0L) {
+                                            seekTo(playbackPositionMs.toInt().coerceAtMost(duration))
+                                        }
                                         start()
                                     }
                                 }.onFailure {
@@ -272,9 +312,21 @@ fun HistoryScreen(
                                         )
                                     }
                                 }.getOrNull()
-                                playingEntryId = if (mediaPlayer != null) entry.id else null
+                                if (mediaPlayer != null) {
+                                    playingEntryId = entry.id
+                                    playbackDurationMs = mediaPlayer?.duration?.toLong()?.coerceAtLeast(0L) ?: playbackDurationMs
+                                } else {
+                                    playingEntryId = null
+                                }
                             }
                         }
+                    },
+                    onSeekAudio = { progress ->
+                        val duration = playbackDurationMs
+                        if (duration <= 0L) return@HistoryEntryDetail
+                        val target = (duration * progress.coerceIn(0f, 1f)).toInt()
+                        playbackPositionMs = target.toLong()
+                        mediaPlayer?.seekTo(target)
                     },
                     onDeleteAudio = {
                         showDeleteAudioDialog = true
@@ -411,6 +463,8 @@ fun HistoryScreen(
                             mediaPlayer?.release()
                             mediaPlayer = null
                             playingEntryId = null
+                            playbackPositionMs = 0L
+                            playbackDurationMs = 0L
                         }
                         viewModel.deleteAudio(selectedEntry.id)
                         showDeleteAudioDialog = false
@@ -542,7 +596,10 @@ private fun HistoryEntryDetail(
     onCancelDownload: () -> Unit,
     onCopySummary: (String) -> Unit,
     isAudioPlaying: Boolean,
+    playbackPositionMs: Long,
+    playbackDurationMs: Long,
     onToggleAudio: () -> Unit,
+    onSeekAudio: (Float) -> Unit,
     onDeleteAudio: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -648,6 +705,34 @@ private fun HistoryEntryDetail(
         )
 
         if (!item.audioFilePath.isNullOrEmpty()) {
+            val duration = playbackDurationMs.coerceAtLeast(0L)
+            val position = playbackPositionMs.coerceIn(0L, duration.takeIf { it > 0L } ?: 0L)
+            val progress = if (duration > 0L) position.toFloat() / duration.toFloat() else 0f
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Slider(
+                    value = progress.coerceIn(0f, 1f),
+                    onValueChange = onSeekAudio,
+                    valueRange = 0f..1f,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = formatPlaybackTime(position),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = formatPlaybackTime(duration),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -764,6 +849,13 @@ private fun formatHistoryTime(millis: Long): String =
         System.currentTimeMillis(),
         DateUtils.MINUTE_IN_MILLIS,
     ).toString()
+
+private fun formatPlaybackTime(millis: Long): String {
+    val sec = (millis / 1000L).coerceAtLeast(0L)
+    val m = sec / 60
+    val s = sec % 60
+    return "%02d:%02d".format(m, s)
+}
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

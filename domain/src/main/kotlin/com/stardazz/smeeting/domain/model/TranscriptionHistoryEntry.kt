@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.domain.model
+package com.stardazz.smeeting.domain.model
 
 data class TranscriptionHistoryEntry(
     val id: String,

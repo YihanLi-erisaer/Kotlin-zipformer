@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.domain.repository
+package com.stardazz.smeeting.domain.repository
 
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import kotlinx.coroutines.flow.Flow

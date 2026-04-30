@@ -1,5 +1,12 @@
-﻿package com.stardazz.smeeting.feature.home
+package com.stardazz.smeeting.feature.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -10,10 +17,14 @@ import androidx.compose.material3.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import kotlin.math.sin
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -86,6 +97,24 @@ fun ASRScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = stringResource(
+                    R.string.recording_duration,
+                    formatDuration(if (uiState.isListening) uiState.recordingDurationMs else 0L),
+                ),
+                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            RecordingWaveform(
+                modifier = Modifier
+                    .fillMaxWidth(0.78f)
+                    .height(34.dp),
+                level = uiState.audioLevel,
+                isListening = uiState.isListening,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
             Card(
                 modifier = Modifier
@@ -169,4 +198,64 @@ fun ASRScreen(
                 .padding(16.dp)
         )
     }
+}
+
+@Composable
+private fun RecordingWaveform(
+    modifier: Modifier,
+    level: Float,
+    isListening: Boolean,
+    color: Color,
+) {
+    val transition = rememberInfiniteTransition(label = "waveform")
+    val animatedPhase = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "phase",
+    ).value
+    val phase = if (isListening) animatedPhase else 0f
+
+    Canvas(modifier = modifier) {
+        if (!isListening) {
+            val lineHeight = size.height * 0.08f
+            val top = (size.height - lineHeight) / 2f
+            drawRoundRect(
+                color = color.copy(alpha = 0.65f),
+                topLeft = androidx.compose.ui.geometry.Offset(0f, top),
+                size = androidx.compose.ui.geometry.Size(size.width, lineHeight),
+                cornerRadius = CornerRadius(lineHeight / 2f, lineHeight / 2f),
+            )
+            return@Canvas
+        }
+        val bars = 24
+        val gap = 6f
+        val barWidth = (size.width - gap * (bars - 1)) / bars
+        val baseHeight = size.height * 0.10f
+        val effectiveLevel = level.coerceIn(0f, 1f).coerceAtLeast(0.07f)
+        val maxExtra = size.height * 0.66f * effectiveLevel
+        for (i in 0 until bars) {
+            val centerFactor = 1f - (kotlin.math.abs(i - (bars / 2f)) / (bars / 2f)).coerceIn(0f, 1f)
+            val wave = (sin(phase + i * 0.6f) + 1f) / 2f
+            val h = baseHeight + maxExtra * wave * (0.5f + centerFactor * 0.5f)
+            val left = i * (barWidth + gap)
+            val top = (size.height - h) / 2f
+            drawRoundRect(
+                color = color.copy(alpha = 0.85f),
+                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                size = androidx.compose.ui.geometry.Size(barWidth, h),
+                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+            )
+        }
+    }
+}
+
+private fun formatDuration(ms: Long): String {
+    val totalSec = (ms / 1000L).coerceAtLeast(0L)
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return "%02d:%02d".format(min, sec)
 }

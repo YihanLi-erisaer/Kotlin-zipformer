@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.data.db
+package com.stardazz.smeeting.data.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity

@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.data.db
+package com.stardazz.smeeting.data.db
 
 import android.content.Context
 import androidx.room.Room

@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.feature.history
+package com.stardazz.smeeting.feature.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

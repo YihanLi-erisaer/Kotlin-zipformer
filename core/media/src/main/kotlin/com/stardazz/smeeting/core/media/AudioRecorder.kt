@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.core.media
+package com.stardazz.smeeting.core.media
 
 import android.annotation.SuppressLint
 import android.media.AudioFormat

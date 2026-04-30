@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.domain.usecase
+package com.stardazz.smeeting.domain.usecase
 
 import com.stardazz.smeeting.domain.repository.TranscriptionHistoryRepository
 import javax.inject.Inject

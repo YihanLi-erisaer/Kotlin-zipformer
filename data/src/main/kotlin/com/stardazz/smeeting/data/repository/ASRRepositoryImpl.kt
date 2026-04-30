@@ -1,4 +1,4 @@
-﻿package com.stardazz.smeeting.data.repository
+package com.stardazz.smeeting.data.repository
 
 import android.content.Context
 import android.util.Log
@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -284,6 +286,8 @@ class ASRRepositoryImpl @Inject constructor(
         extraBufferCapacity = 128,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
+    private val _audioLevel = MutableStateFlow(0f)
+    override val audioLevel: StateFlow<Float> = _audioLevel
 
     /** Completed sentences; new sentences append here */
     private var accumulatedText = StringBuilder()
@@ -390,6 +394,7 @@ class ASRRepositoryImpl @Inject constructor(
 
         audioRecorder.start(object : AudioRecorder.AudioDataListener {
             override fun onAudioData(data: ShortArray) {
+                _audioLevel.value = calculateRmsLevel(data)
                 nativeBridge.feedAudioData(data)
             }
         }, outputFile = wavFile)
@@ -431,6 +436,7 @@ class ASRRepositoryImpl @Inject constructor(
             Log.d(TAG, "Streaming inference completed")
             coordinator.release()
         }
+        _audioLevel.value = 0f
         return recordedAudioPath
     }
 
@@ -441,5 +447,16 @@ class ASRRepositoryImpl @Inject constructor(
             2 -> EngineStatus.LISTENING
             else -> EngineStatus.ERROR
         }
+    }
+
+    private fun calculateRmsLevel(data: ShortArray): Float {
+        if (data.isEmpty()) return 0f
+        var sum = 0.0
+        for (sample in data) {
+            val normalized = sample / 32768.0
+            sum += normalized * normalized
+        }
+        val rms = kotlin.math.sqrt(sum / data.size)
+        return rms.toFloat().coerceIn(0f, 1f)
     }
 }
