@@ -91,9 +91,11 @@ import androidx.core.content.FileProvider
 import com.stardazz.smeeting.core.startup.LlmModelState
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -269,12 +271,14 @@ fun HistoryScreen(
                                                     )
                                                 }
                                             }
-                                            shareAudioFile(context, audioPath) -> Unit
                                             else -> {
                                                 scope.launch {
-                                                    snackbarHostState.showSnackbar(
-                                                        context.getString(R.string.history_audio_share_failed),
-                                                    )
+                                                    val shared = shareAudioFile(context, audioPath)
+                                                    if (!shared) {
+                                                        snackbarHostState.showSnackbar(
+                                                            context.getString(R.string.history_audio_share_failed),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -939,10 +943,10 @@ private fun copyToClipboard(context: Context, text: String) {
     cm.setPrimaryClip(ClipData.newPlainText("transcription", text))
 }
 
-private fun shareAudioFile(context: Context, audioPath: String): Boolean {
+private suspend fun shareAudioFile(context: Context, audioPath: String): Boolean {
     val source = File(audioPath)
     if (!source.exists()) return false
-    return runCatching {
+    val payload = withContext(Dispatchers.IO) {
         val shareDir = File(context.cacheDir, "shared-audio").apply { mkdirs() }
         val ext = source.extension.takeIf { it.isNotBlank() } ?: "m4a"
         val exported = File(shareDir, "transcription_${System.currentTimeMillis()}.$ext")
@@ -955,13 +959,16 @@ private fun shareAudioFile(context: Context, audioPath: String): Boolean {
         val mimeType = MimeTypeMap.getSingleton()
             .getMimeTypeFromExtension(ext.lowercase())
             ?: "audio/*"
+        uri to mimeType
+    }
+    return runCatching {
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
+            type = payload.second
+            putExtra(Intent.EXTRA_STREAM, payload.first)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(
-            Intent.createChooser(intent, context.getString(R.string.history_audio_share)),
-        )
+        val chooser = Intent.createChooser(intent, context.getString(R.string.history_audio_share))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
     }.isSuccess
 }
