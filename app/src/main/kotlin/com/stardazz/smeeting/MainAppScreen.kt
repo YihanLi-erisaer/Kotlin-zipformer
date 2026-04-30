@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import com.stardazz.smeeting.core.common.ThemeMode
 import com.stardazz.smeeting.core.common.ThemePreferences
@@ -35,8 +37,14 @@ fun MainAppScreen(
     useBeamSearch: Boolean,
     appVersion: String,
     modelInitState: ModelInitState,
+    onStartRequested: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        mainUiViewModel.triggerStartupPipeline()
+    }
 
     BackHandler(enabled = currentScreen != MainScreen.Home) {
         mainUiViewModel.onBack()
@@ -112,6 +120,7 @@ fun MainAppScreen(
                                 modelErrorMessage = (modelInitState as? ModelInitState.Error)?.message,
                                 onSettingsClick = { mainUiViewModel.openSettings() },
                                 onHistoryClick = { mainUiViewModel.openHistory() },
+                                onStartRequested = onStartRequested,
                             )
                         }
                     }

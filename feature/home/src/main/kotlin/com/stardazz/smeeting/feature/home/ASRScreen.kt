@@ -1,4 +1,4 @@
-package com.stardazz.smeeting.feature.home
+﻿package com.stardazz.smeeting.feature.home
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -33,7 +33,8 @@ fun ASRScreen(
     isModelLoading: Boolean = false,
     modelErrorMessage: String? = null,
     onSettingsClick: () -> Unit = {},
-    onHistoryClick: () -> Unit = {}
+    onHistoryClick: () -> Unit = {},
+    onStartRequested: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val clipboardManager = LocalClipboardManager.current
@@ -143,7 +144,13 @@ fun ASRScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = { viewModel.onIntent(ASRContract.Intent.ToggleListening) },
+                    onClick = {
+                        if (uiState.isListening) {
+                            viewModel.onIntent(ASRContract.Intent.ToggleListening)
+                        } else {
+                            onStartRequested()
+                        }
+                    },
                     enabled = !isModelLoading && modelErrorMessage == null
                 ) {
                     Text(

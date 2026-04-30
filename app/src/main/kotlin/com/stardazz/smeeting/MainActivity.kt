@@ -34,9 +34,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!mainUiViewModel.hasAudioPermission()) {
-            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
         setContent {
             val themeMode by themePreferences.themeModeFlow.collectAsState(initial = ThemeMode.FOLLOW_SYSTEM)
             val useBeamSearch by themePreferences.useBeamSearchFlow.collectAsState(initial = false)
@@ -58,6 +55,13 @@ class MainActivity : ComponentActivity() {
                 useBeamSearch = useBeamSearch,
                 appVersion = appVersion,
                 modelInitState = modelInitState,
+                onStartRequested = {
+                    if (mainUiViewModel.hasAudioPermission()) {
+                        viewModel.onIntent(com.stardazz.smeeting.feature.home.ASRContract.Intent.ToggleListening)
+                    } else {
+                        requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
             )
         }
     }

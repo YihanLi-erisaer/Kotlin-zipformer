@@ -57,8 +57,11 @@ class MainUiViewModel @Inject constructor(
 
     init {
         observeModelInitEvents()
-        StartupRunner.runRegisteredPipelineOnce(viewModelScope)
         observeBeamSearchChanges()
+    }
+
+    fun triggerStartupPipeline() {
+        StartupRunner.runRegisteredPipelineOnce(viewModelScope)
     }
 
     // ── Permission ──
