@@ -7,6 +7,7 @@ import com.stardazz.smeeting.core.llm.NcnnLlmBridge
 import com.stardazz.smeeting.domain.repository.LLMRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
@@ -42,31 +43,47 @@ class LLMRepositoryImpl @Inject constructor(
             }
 
             try {
-                val prompt = buildPrompt(text)
-                val sb = StringBuilder()
-                var lastEmitMs = 0L
+                val normalized = text.trim()
+                if (normalized.isEmpty()) return@withLock
+                val language = detectPromptLanguage(normalized)
+                val chunks = splitByUtf8Bytes(normalized, CHUNK_INPUT_UTF8_BYTES)
+                val chunkSummaries = mutableListOf<String>()
 
-                val collector = launch {
-                    bridge.tokenFlow().collect { token ->
-                        sb.append(token)
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS) {
-                            if (trySend(sb.toString()).isSuccess) {
-                                lastEmitMs = now
-                            }
+                chunks.forEachIndexed { index, chunk ->
+                    val chunkPrompt =
+                        if (chunks.size == 1) {
+                            buildPrompt(chunk, language)
+                        } else {
+                            buildChunkPrompt(
+                                chunkText = chunk,
+                                index = index + 1,
+                                total = chunks.size,
+                                language = language,
+                            )
                         }
+                    val chunkResult = runGeneration(chunkPrompt) { partial ->
+                        val output =
+                            if (chunks.size == 1) partial
+                            else "${buildProgressPrefix(index + 1, chunks.size, language)}\n\n$partial"
+                        trySend(output)
+                    }.trim()
+                    if (chunkResult.isNotEmpty()) {
+                        chunkSummaries += chunkResult
                     }
                 }
 
-                runCatching {
-                    bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
-                }.onFailure { t ->
-                    Log.e(TAG, "LLM generate failed", t)
+                if (chunkSummaries.isEmpty()) return@withLock
+                if (chunkSummaries.size == 1) {
+                    trySend(chunkSummaries.first())
+                    return@withLock
                 }
 
-                collector.cancelAndJoin()
-                if (sb.isNotEmpty()) {
-                    trySend(sb.toString())
+                val mergePrompt = buildMergePrompt(chunkSummaries, language)
+                val merged = runGeneration(mergePrompt) { partial -> trySend(partial) }.trim()
+                if (merged.isNotEmpty()) {
+                    trySend(merged)
+                } else {
+                    trySend(chunkSummaries.joinToString("\n\n"))
                 }
             } finally {
                 coordinator.release()
@@ -82,13 +99,84 @@ class LLMRepositoryImpl @Inject constructor(
         bridge.isGenerating.first { !it }
     }
 
-    private fun buildPrompt(transcriptionText: String): String {
+    private suspend fun runGeneration(prompt: String, onPartial: (String) -> Unit): String {
+        return coroutineScope {
+            val sb = StringBuilder()
+            var lastEmitMs = 0L
+            val collector = launch {
+                bridge.tokenFlow().collect { token ->
+                    sb.append(token)
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS) {
+                        onPartial(sb.toString())
+                        lastEmitMs = now
+                    }
+                }
+            }
+            runCatching {
+                bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
+            }.onFailure { t ->
+                Log.e(TAG, "LLM generate failed", t)
+            }
+            collector.cancelAndJoin()
+            sb.toString()
+        }
+    }
+
+    private fun splitByUtf8Bytes(text: String, maxBytesPerChunk: Int): List<String> {
+        if (text.isEmpty()) return emptyList()
+        val chunks = mutableListOf<String>()
+        var start = 0
+        while (start < text.length) {
+            val remaining = text.substring(start)
+            val chunk = trimToUtf8Bytes(remaining, maxBytesPerChunk)
+            if (chunk.isEmpty()) break
+            chunks += chunk.trim()
+            start += chunk.length
+        }
+        return chunks.filter { it.isNotEmpty() }
+    }
+
+    private fun buildPrompt(transcriptionText: String, language: PromptLanguage): String {
         val normalized = transcriptionText.trim()
         val trimmed = trimToUtf8Bytes(normalized, MAX_INPUT_UTF8_BYTES)
-        val promptLanguage = detectPromptLanguage(trimmed)
-        val systemPrompt = buildSystemPrompt(promptLanguage)
+        val systemPrompt = buildSystemPrompt(language)
         return "<|im_start|>system\n$systemPrompt<|im_end|>\n<|im_start|>user\n$trimmed<|im_end|>\n<|im_start|>assistant\n"
     }
+
+    private fun buildChunkPrompt(
+        chunkText: String,
+        index: Int,
+        total: Int,
+        language: PromptLanguage,
+    ): String {
+        val instruction =
+            when (language) {
+                PromptLanguage.CHINESE ->
+                    "这是长文本的第 $index/$total 段，请先只总结本段，保留关键信息和行动项。"
+                PromptLanguage.ENGLISH ->
+                    "This is segment $index/$total of a long transcription. Summarize this segment only with key points and action items."
+            }
+        val chunkBody = trimToUtf8Bytes(chunkText.trim(), CHUNK_INPUT_UTF8_BYTES)
+        return "<|im_start|>system\n${buildChunkSystemPrompt(language)}<|im_end|>\n" +
+            "<|im_start|>user\n$instruction\n\n$chunkBody<|im_end|>\n<|im_start|>assistant\n"
+    }
+
+    private fun buildMergePrompt(chunkSummaries: List<String>, language: PromptLanguage): String {
+        val mergedInput =
+            chunkSummaries.mapIndexed { idx, summary ->
+                "[$idx]\n${summary.trim()}"
+            }.joinToString("\n\n")
+        val body = trimToUtf8Bytes(mergedInput, MERGE_INPUT_UTF8_BYTES)
+        return "<|im_start|>system\n${buildMergeSystemPrompt(language)}<|im_end|>\n" +
+            "<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n"
+    }
+
+    private fun buildProgressPrefix(index: Int, total: Int, language: PromptLanguage): String =
+        when (language) {
+            PromptLanguage.CHINESE -> "正在总结第 $index/$total 段"
+            PromptLanguage.ENGLISH -> "Summarizing segment $index/$total"
+        }
 
     private fun trimToUtf8Bytes(text: String, maxBytes: Int): String {
         if (maxBytes <= 0 || text.isEmpty()) return ""
@@ -128,6 +216,8 @@ class LLMRepositoryImpl @Inject constructor(
         private const val MAX_TOKENS = 512
         private const val N_THREADS = 4
         private const val MAX_INPUT_UTF8_BYTES = 3000
+        private const val CHUNK_INPUT_UTF8_BYTES = 2200
+        private const val MERGE_INPUT_UTF8_BYTES = 3200
         private const val STREAM_EMIT_INTERVAL_MS = 100L
         private const val HAN_UNICODE_START = 0x4E00
         private const val HAN_UNICODE_END = 0x9FFF
@@ -153,7 +243,33 @@ class LLMRepositoryImpl @Inject constructor(
             "- 项目符号列表，每点仅 1 句话。\n\n" +
             "行动项：\n" +
             "- 如有行动项，写 2-3 句话；如无则写“无”。"
+
+        private const val ENGLISH_CHUNK_SYSTEM_PROMPT =
+            "You summarize one segment of a long meeting transcription. " +
+            "Keep factual details, decisions, and action items from this segment only."
+
+        private const val CHINESE_CHUNK_SYSTEM_PROMPT =
+            "你负责总结长会议转写中的单个片段。只总结当前片段，保留事实、决策和行动项。"
+
+        private const val ENGLISH_MERGE_SYSTEM_PROMPT =
+            "You are given summaries from multiple transcription segments. " +
+            "Merge them into one coherent final summary in the format: Summary, Key Points, Action Items."
+
+        private const val CHINESE_MERGE_SYSTEM_PROMPT =
+            "你将收到多个片段总结，请合并为一份完整总结，格式为：摘要、关键点、行动项。"
     }
+
+    private fun buildChunkSystemPrompt(language: PromptLanguage): String =
+        when (language) {
+            PromptLanguage.CHINESE -> CHINESE_CHUNK_SYSTEM_PROMPT
+            PromptLanguage.ENGLISH -> ENGLISH_CHUNK_SYSTEM_PROMPT
+        }
+
+    private fun buildMergeSystemPrompt(language: PromptLanguage): String =
+        when (language) {
+            PromptLanguage.CHINESE -> CHINESE_MERGE_SYSTEM_PROMPT
+            PromptLanguage.ENGLISH -> ENGLISH_MERGE_SYSTEM_PROMPT
+        }
 
     private enum class PromptLanguage {
         CHINESE,
