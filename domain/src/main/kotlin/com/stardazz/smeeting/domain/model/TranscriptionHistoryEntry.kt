@@ -5,4 +5,5 @@ data class TranscriptionHistoryEntry(
     val text: String,
     val createdAtMillis: Long,
     val summary: String? = null,
+    val audioFilePath: String? = null,
 )

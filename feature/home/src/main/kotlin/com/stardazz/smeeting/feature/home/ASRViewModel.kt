@@ -7,6 +7,7 @@ import com.stardazz.smeeting.domain.usecase.AppendTranscriptionHistoryUseCase
 import com.stardazz.smeeting.domain.usecase.StartASRUseCase
 import com.stardazz.smeeting.domain.usecase.StopASRUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,8 +95,9 @@ class ASRViewModel @Inject constructor(
 
     private fun stopListening() {
         viewModelScope.launch {
+            var audioFilePath: String? = null
             runCatching {
-                stopASRUseCase()
+                audioFilePath = stopASRUseCase()
             }.onFailure { throwable ->
                 _effect.emit(
                     ASRContract.Effect.ShowMessage(
@@ -106,7 +108,9 @@ class ASRViewModel @Inject constructor(
             _uiState.update { it.copy(isListening = false) }
             val finalText = _uiState.value.resultText.trim()
             if (finalText.isNotEmpty()) {
-                appendTranscriptionHistoryUseCase(finalText)
+                appendTranscriptionHistoryUseCase(finalText, audioFilePath)
+            } else if (!audioFilePath.isNullOrEmpty()) {
+                runCatching { File(audioFilePath!!).delete() }
             }
         }
     }

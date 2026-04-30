@@ -6,8 +6,8 @@ import javax.inject.Inject
 class AppendTranscriptionHistoryUseCase @Inject constructor(
     private val repository: TranscriptionHistoryRepository,
 ) {
-    suspend operator fun invoke(text: String) {
+    suspend operator fun invoke(text: String, audioFilePath: String?) {
         val t = text.trim()
-        if (t.isNotEmpty()) repository.append(t)
+        if (t.isNotEmpty()) repository.append(t, audioFilePath)
     }
 }

@@ -11,6 +11,7 @@ data class TranscriptionHistoryEntity(
     @ColumnInfo(name = "text") val text: String,
     @ColumnInfo(name = "created_at_millis") val createdAtMillis: Long,
     @ColumnInfo(name = "summary", defaultValue = "NULL") val summary: String? = null,
+    @ColumnInfo(name = "audio_file_path", defaultValue = "NULL") val audioFilePath: String? = null,
 )
 
 fun TranscriptionHistoryEntity.toDomain() = TranscriptionHistoryEntry(
@@ -18,4 +19,5 @@ fun TranscriptionHistoryEntity.toDomain() = TranscriptionHistoryEntry(
     text = text,
     createdAtMillis = createdAtMillis,
     summary = summary,
+    audioFilePath = audioFilePath,
 )

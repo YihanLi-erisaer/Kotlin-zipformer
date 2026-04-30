@@ -29,4 +29,12 @@
     <string name="summary_delete_model_title">Delete downloaded model?</string>
     <string name="summary_delete_model_message">This frees disk space. You can download the model again later.</string>
     <string name="summary_delete_model_confirm">Delete</string>
+    <string name="history_audio_play">Play audio</string>
+    <string name="history_audio_pause">Pause audio</string>
+    <string name="history_audio_delete">Delete audio</string>
+    <string name="history_audio_missing">Audio file is missing.</string>
+    <string name="history_audio_play_failed">Failed to play audio.</string>
+    <string name="history_audio_delete_confirm_title">Delete audio</string>
+    <string name="history_audio_delete_confirm_message">Delete the audio file for this transcription? The transcript text will be kept.</string>
+    <string name="history_audio_delete_confirm">Delete</string>
 </resources>

@@ -6,6 +6,7 @@ import com.stardazz.smeeting.core.startup.LlmModelManager
 import com.stardazz.smeeting.core.startup.LlmModelState
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import com.stardazz.smeeting.domain.usecase.DeleteTranscriptionHistoryEntryUseCase
+import com.stardazz.smeeting.domain.usecase.DeleteTranscriptionAudioUseCase
 import com.stardazz.smeeting.domain.usecase.ObserveTranscriptionHistoryUseCase
 import com.stardazz.smeeting.domain.usecase.SummarizeTranscriptionUseCase
 import com.stardazz.smeeting.domain.repository.LLMRepository
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 class HistoryViewModel @Inject constructor(
     observeTranscriptionHistoryUseCase: ObserveTranscriptionHistoryUseCase,
     private val deleteTranscriptionHistoryEntryUseCase: DeleteTranscriptionHistoryEntryUseCase,
+    private val deleteTranscriptionAudioUseCase: DeleteTranscriptionAudioUseCase,
     private val summarizeTranscriptionUseCase: SummarizeTranscriptionUseCase,
     private val updateHistorySummaryUseCase: UpdateHistorySummaryUseCase,
     private val llmRepository: LLMRepository,
@@ -51,6 +53,12 @@ class HistoryViewModel @Inject constructor(
     fun deleteEntry(id: String) {
         viewModelScope.launch {
             deleteTranscriptionHistoryEntryUseCase(id)
+        }
+    }
+
+    fun deleteAudio(id: String) {
+        viewModelScope.launch {
+            deleteTranscriptionAudioUseCase(id)
         }
     }
 

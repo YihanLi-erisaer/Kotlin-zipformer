@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface ASRRepository {
     fun startListening(): Flow<Transcription>
-    suspend fun stopListening()
+    suspend fun stopListening(): String?
     fun getEngineStatus(): EngineStatus
 }
 

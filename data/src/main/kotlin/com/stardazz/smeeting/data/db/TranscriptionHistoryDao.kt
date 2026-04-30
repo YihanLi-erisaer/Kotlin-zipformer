@@ -15,6 +15,9 @@ interface TranscriptionHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: TranscriptionHistoryEntity)
 
+    @Query("SELECT * FROM transcription_history WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): TranscriptionHistoryEntity?
+
     @Query("DELETE FROM transcription_history WHERE id = :id")
     suspend fun deleteById(id: String)
 
@@ -23,6 +26,9 @@ interface TranscriptionHistoryDao {
 
     @Query("UPDATE transcription_history SET summary = :summary WHERE id = :id")
     suspend fun updateSummary(id: String, summary: String)
+
+    @Query("UPDATE transcription_history SET audio_file_path = NULL WHERE id = :id")
+    suspend fun clearAudioById(id: String)
 
     /** Remove the N oldest rows so the table stays within a size cap. */
     @Query(

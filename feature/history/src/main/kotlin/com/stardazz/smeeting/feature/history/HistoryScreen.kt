@@ -3,6 +3,7 @@
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.media.MediaPlayer
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -82,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.stardazz.smeeting.core.startup.LlmModelState
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
+import java.io.File
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -115,11 +117,21 @@ fun HistoryScreen(
     var selectedEntryId by rememberSaveable { mutableStateOf<String?>(null) }
     var detailMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteLlmModelDialog by remember { mutableStateOf(false) }
+    var showDeleteAudioDialog by remember { mutableStateOf(false) }
     var expandBias by remember { mutableFloatStateOf(0f) }
     var contentCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val listState = rememberLazyListState()
     val selectedEntry = entries.firstOrNull { it.id == selectedEntryId }
     val isShowingDetail = selectedEntry != null
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var playingEntryId by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayer?.release()
+            mediaPlayer = null
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -229,6 +241,43 @@ fun HistoryScreen(
                     onCopySummary = { text ->
                         copyToClipboard(context, text)
                         scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                    },
+                    isAudioPlaying = playingEntryId == entry.id,
+                    onToggleAudio = {
+                        val audioPath = entry.audioFilePath
+                        if (!audioPath.isNullOrEmpty()) {
+                            val audioFile = File(audioPath)
+                            if (!audioFile.exists()) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(context.getString(R.string.history_audio_missing))
+                                }
+                            } else if (playingEntryId == entry.id) {
+                                mediaPlayer?.pause()
+                                playingEntryId = null
+                            } else {
+                                mediaPlayer?.release()
+                                mediaPlayer = runCatching {
+                                    MediaPlayer().apply {
+                                        setDataSource(audioPath)
+                                        setOnCompletionListener {
+                                            playingEntryId = null
+                                        }
+                                        prepare()
+                                        start()
+                                    }
+                                }.onFailure {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            context.getString(R.string.history_audio_play_failed),
+                                        )
+                                    }
+                                }.getOrNull()
+                                playingEntryId = if (mediaPlayer != null) entry.id else null
+                            }
+                        }
+                    },
+                    onDeleteAudio = {
+                        showDeleteAudioDialog = true
                     },
                 )
             } else if (entries.isEmpty()) {
@@ -348,6 +397,38 @@ fun HistoryScreen(
             },
         )
     }
+
+    if (showDeleteAudioDialog && selectedEntry != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAudioDialog = false },
+            title = { Text(stringResource(R.string.history_audio_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.history_audio_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (playingEntryId == selectedEntry.id) {
+                            mediaPlayer?.stop()
+                            mediaPlayer?.release()
+                            mediaPlayer = null
+                            playingEntryId = null
+                        }
+                        viewModel.deleteAudio(selectedEntry.id)
+                        showDeleteAudioDialog = false
+                    },
+                ) {
+                    Text(
+                        stringResource(R.string.history_audio_delete_confirm),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAudioDialog = false }) {
+                    Text(stringResource(R.string.history_delete_cancel))
+                }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -460,6 +541,9 @@ private fun HistoryEntryDetail(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onCopySummary: (String) -> Unit,
+    isAudioPlaying: Boolean,
+    onToggleAudio: () -> Unit,
+    onDeleteAudio: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val generatingLabel = stringResource(R.string.summary_generating)
@@ -562,6 +646,31 @@ private fun HistoryEntryDetail(
                 }
             },
         )
+
+        if (!item.audioFilePath.isNullOrEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onToggleAudio,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        if (isAudioPlaying) stringResource(R.string.history_audio_pause)
+                        else stringResource(R.string.history_audio_play),
+                    )
+                }
+                OutlinedButton(
+                    onClick = onDeleteAudio,
+                ) {
+                    Text(
+                        stringResource(R.string.history_audio_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 ﻿package com.stardazz.smeeting.data.repository
 
+import android.content.Context
 import android.util.Log
 import com.stardazz.smeeting.core.common.InferenceCoordinator
 import com.stardazz.smeeting.core.media.AudioRecorder
@@ -7,6 +8,8 @@ import com.stardazz.smeeting.core.media.NcnnNativeBridge
 import com.stardazz.smeeting.domain.model.Transcription
 import com.stardazz.smeeting.domain.repository.ASRRepository
 import com.stardazz.smeeting.domain.repository.EngineStatus
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -268,6 +271,7 @@ private fun toSentenceCase(text: String): String {
 
 @Singleton
 class ASRRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val nativeBridge: NcnnNativeBridge,
     private val audioRecorder: AudioRecorder,
     private val coordinator: InferenceCoordinator,
@@ -381,18 +385,21 @@ class ASRRepositoryImpl @Inject constructor(
         _transcriptionFlow.tryEmit(Transcription("0", "", 0f, 0L, false))
 
         nativeBridge.startInference()
+        val recordingDir = File(context.filesDir, "transcription_audio").apply { mkdirs() }
+        val wavFile = File(recordingDir, "asr_${System.currentTimeMillis()}.wav")
 
         audioRecorder.start(object : AudioRecorder.AudioDataListener {
             override fun onAudioData(data: ShortArray) {
                 nativeBridge.feedAudioData(data)
             }
-        })
+        }, outputFile = wavFile)
         return _transcriptionFlow.asSharedFlow()
     }
 
-    override suspend fun stopListening() {
+    override suspend fun stopListening(): String? {
         Log.d(TAG, "stopListening: Stopping recorder and flushing stream")
         audioRecorder.stop()
+        val recordedAudioPath = audioRecorder.consumeLastRecordedFilePath()
 
         withContext(Dispatchers.Default) {
             nativeBridge.signalInputFinished()
@@ -424,6 +431,7 @@ class ASRRepositoryImpl @Inject constructor(
             Log.d(TAG, "Streaming inference completed")
             coordinator.release()
         }
+        return recordedAudioPath
     }
 
     override fun getEngineStatus(): EngineStatus {

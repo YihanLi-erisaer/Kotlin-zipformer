@@ -5,6 +5,7 @@ import com.stardazz.smeeting.data.db.TranscriptionHistoryEntity
 import com.stardazz.smeeting.data.db.toDomain
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import com.stardazz.smeeting.domain.repository.TranscriptionHistoryRepository
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +22,7 @@ class TranscriptionHistoryRepositoryImpl @Inject constructor(
     override val entries: Flow<List<TranscriptionHistoryEntry>> =
         dao.observeAll().map { entities -> entities.map { it.toDomain() } }
 
-    override suspend fun append(text: String) {
+    override suspend fun append(text: String, audioFilePath: String?) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         dao.insert(
@@ -29,6 +30,7 @@ class TranscriptionHistoryRepositoryImpl @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 text = trimmed,
                 createdAtMillis = System.currentTimeMillis(),
+                audioFilePath = audioFilePath,
             )
         )
         val total = dao.count()
@@ -38,10 +40,24 @@ class TranscriptionHistoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun remove(id: String) {
+        dao.getById(id)?.audioFilePath?.let { path ->
+            runCatching {
+                File(path).takeIf { it.exists() }?.delete()
+            }
+        }
         dao.deleteById(id)
     }
 
     override suspend fun updateSummary(id: String, summary: String) {
         dao.updateSummary(id, summary)
+    }
+
+    override suspend fun removeAudio(id: String) {
+        dao.getById(id)?.audioFilePath?.let { path ->
+            runCatching {
+                File(path).takeIf { it.exists() }?.delete()
+            }
+        }
+        dao.clearAudioById(id)
     }
 }
