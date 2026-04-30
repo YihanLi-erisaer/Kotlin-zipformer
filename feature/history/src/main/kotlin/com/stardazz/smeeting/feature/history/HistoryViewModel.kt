@@ -15,6 +15,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -79,8 +80,15 @@ class HistoryViewModel @Inject constructor(
                 llmRepository.awaitGenerationIdle()
                 if (!isActive) return@launch
 
-                summarizeTranscriptionUseCase(entry.text).collect { accumulated ->
-                    _streamingText.value = accumulated
+                try {
+                    summarizeTranscriptionUseCase(entry.text).collect { accumulated ->
+                        _streamingText.value = accumulated
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Throwable) {
+                    // Keep UI stable if native/bridge layer fails on extreme inputs.
+                    _streamingText.value = ""
                 }
                 val finalText = _streamingText.value
                 if (finalText.isNotEmpty()) {

@@ -6,6 +6,7 @@ import com.stardazz.smeeting.core.common.InferenceCoordinator
 import com.stardazz.smeeting.core.llm.NcnnLlmBridge
 import com.stardazz.smeeting.domain.repository.LLMRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
@@ -50,17 +51,22 @@ class LLMRepositoryImpl @Inject constructor(
                         sb.append(token)
                         val now = SystemClock.elapsedRealtime()
                         if (now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS) {
-                            send(sb.toString())
-                            lastEmitMs = now
+                            if (trySend(sb.toString()).isSuccess) {
+                                lastEmitMs = now
+                            }
                         }
                     }
                 }
 
-                bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
+                runCatching {
+                    bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
+                }.onFailure { t ->
+                    Log.e(TAG, "LLM generate failed", t)
+                }
 
-                collector.cancel()
+                collector.cancelAndJoin()
                 if (sb.isNotEmpty()) {
-                    send(sb.toString())
+                    trySend(sb.toString())
                 }
             } finally {
                 coordinator.release()
@@ -77,14 +83,28 @@ class LLMRepositoryImpl @Inject constructor(
     }
 
     private fun buildPrompt(transcriptionText: String): String {
-        val trimmed = if (transcriptionText.length > MAX_INPUT_CHARS) {
-            transcriptionText.take(MAX_INPUT_CHARS)
-        } else {
-            transcriptionText
-        }
+        val normalized = transcriptionText.trim()
+        val trimmed = trimToUtf8Bytes(normalized, MAX_INPUT_UTF8_BYTES)
         val promptLanguage = detectPromptLanguage(trimmed)
         val systemPrompt = buildSystemPrompt(promptLanguage)
         return "<|im_start|>system\n$systemPrompt<|im_end|>\n<|im_start|>user\n$trimmed<|im_end|>\n<|im_start|>assistant\n"
+    }
+
+    private fun trimToUtf8Bytes(text: String, maxBytes: Int): String {
+        if (maxBytes <= 0 || text.isEmpty()) return ""
+        if (text.toByteArray(Charsets.UTF_8).size <= maxBytes) return text
+        var low = 0
+        var high = text.length
+        while (low < high) {
+            val mid = (low + high + 1) / 2
+            val bytes = text.substring(0, mid).toByteArray(Charsets.UTF_8).size
+            if (bytes <= maxBytes) {
+                low = mid
+            } else {
+                high = mid - 1
+            }
+        }
+        return text.substring(0, low)
     }
 
     private fun detectPromptLanguage(text: String): PromptLanguage {
@@ -107,7 +127,7 @@ class LLMRepositoryImpl @Inject constructor(
         private const val TAG = "LLMRepositoryImpl"
         private const val MAX_TOKENS = 512
         private const val N_THREADS = 4
-        private const val MAX_INPUT_CHARS = 4096
+        private const val MAX_INPUT_UTF8_BYTES = 3000
         private const val STREAM_EMIT_INTERVAL_MS = 100L
         private const val HAN_UNICODE_START = 0x4E00
         private const val HAN_UNICODE_END = 0x9FFF
