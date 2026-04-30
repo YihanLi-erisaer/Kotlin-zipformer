@@ -29,4 +29,14 @@
     <string name="summary_delete_model_title">删除已下载的模型？</string>
     <string name="summary_delete_model_message">将释放存储空间，之后可随时重新下载。</string>
     <string name="summary_delete_model_confirm">删除</string>
+    <string name="history_audio_play">播放音频</string>
+    <string name="history_audio_pause">暂停音频</string>
+    <string name="history_audio_delete">删除音频</string>
+    <string name="history_audio_missing">音频文件不存在。</string>
+    <string name="history_audio_play_failed">音频播放失败。</string>
+    <string name="history_audio_share">分享音频</string>
+    <string name="history_audio_share_failed">音频分享失败。</string>
+    <string name="history_audio_delete_confirm_title">删除音频</string>
+    <string name="history_audio_delete_confirm_message">确定删除此识别记录对应的音频文件吗？文本内容将保留。</string>
+    <string name="history_audio_delete_confirm">删除</string>
 </resources>

@@ -34,6 +34,8 @@
     <string name="history_audio_delete">Delete audio</string>
     <string name="history_audio_missing">Audio file is missing.</string>
     <string name="history_audio_play_failed">Failed to play audio.</string>
+    <string name="history_audio_share">Share audio</string>
+    <string name="history_audio_share_failed">Failed to share audio.</string>
     <string name="history_audio_delete_confirm_title">Delete audio</string>
     <string name="history_audio_delete_confirm_message">Delete the audio file for this transcription? The transcript text will be kept.</string>
     <string name="history_audio_delete_confirm">Delete</string>

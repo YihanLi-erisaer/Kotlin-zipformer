@@ -3,10 +3,12 @@
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.os.SystemClock
 import android.text.format.DateUtils
+import android.webkit.MimeTypeMap
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
@@ -85,6 +87,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.stardazz.smeeting.core.startup.LlmModelState
 import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import java.io.File
@@ -251,6 +254,30 @@ fun HistoryScreen(
                                         detailMenuExpanded = false
                                         pendingDeleteId = selectedEntry.id
                                         deleteFromDetail = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.history_audio_share)) },
+                                    onClick = {
+                                        detailMenuExpanded = false
+                                        val audioPath = selectedEntry.audioFilePath
+                                        when {
+                                            audioPath.isNullOrEmpty() -> {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.getString(R.string.history_audio_missing),
+                                                    )
+                                                }
+                                            }
+                                            shareAudioFile(context, audioPath) -> Unit
+                                            else -> {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.getString(R.string.history_audio_share_failed),
+                                                    )
+                                                }
+                                            }
+                                        }
                                     },
                                 )
                                 DropdownMenuItem(
@@ -910,4 +937,31 @@ private const val HISTORY_ENTER_ANIMATION_MS = 500L
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("transcription", text))
+}
+
+private fun shareAudioFile(context: Context, audioPath: String): Boolean {
+    val source = File(audioPath)
+    if (!source.exists()) return false
+    return runCatching {
+        val shareDir = File(context.cacheDir, "shared-audio").apply { mkdirs() }
+        val ext = source.extension.takeIf { it.isNotBlank() } ?: "m4a"
+        val exported = File(shareDir, "transcription_${System.currentTimeMillis()}.$ext")
+        source.copyTo(exported, overwrite = true)
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            exported,
+        )
+        val mimeType = MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(ext.lowercase())
+            ?: "audio/*"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, context.getString(R.string.history_audio_share)),
+        )
+    }.isSuccess
 }
