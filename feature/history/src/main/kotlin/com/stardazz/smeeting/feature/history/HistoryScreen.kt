@@ -673,10 +673,17 @@ private fun HistoryEntryDetail(
     val scrollState = rememberScrollState()
     var shouldAutoScroll by remember { mutableStateOf(true) }
     val generatingLabel = stringResource(R.string.summary_generating)
+    val streamingUiBucket = (streamingText.length / STREAMING_AUTO_SCROLL_STEP_CHARS)
     val rawSummaryText: String? = when {
         isSummarizing && streamingText.isNotEmpty() -> streamingText
         !isSummarizing && !item.summary.isNullOrEmpty() -> item.summary
         else -> null
+    }
+    val visibleSummaryText: String? = when {
+        !isSummarizing -> rawSummaryText
+        rawSummaryText.isNullOrEmpty() -> rawSummaryText
+        rawSummaryText.length <= MAX_STREAMING_VISIBLE_CHARS -> rawSummaryText
+        else -> "...\n" + rawSummaryText.takeLast(MAX_STREAMING_VISIBLE_CHARS)
     }
     val showSummarySection =
         rawSummaryText != null || (isSummarizing && streamingText.isEmpty())
@@ -688,7 +695,7 @@ private fun HistoryEntryDetail(
             }
     }
 
-    LaunchedEffect(isSummarizing, streamingText) {
+    LaunchedEffect(isSummarizing, streamingUiBucket) {
         if (!isSummarizing) return@LaunchedEffect
         if (!shouldAutoScroll) return@LaunchedEffect
         withFrameNanos { }
@@ -736,12 +743,19 @@ private fun HistoryEntryDetail(
                     )
                     Spacer(Modifier.height(8.dp))
                     when {
-                        rawSummaryText != null -> {
-                            SelectionContainer {
+                        visibleSummaryText != null -> {
+                            if (isSummarizing) {
                                 Text(
-                                    text = rawSummaryText,
+                                    text = visibleSummaryText,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
+                            } else {
+                                SelectionContainer {
+                                    Text(
+                                        text = visibleSummaryText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
                             }
                         }
                         else -> {
@@ -937,6 +951,8 @@ private fun formatPlaybackTime(millis: Long): String {
 private const val AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 120
 private const val MIN_LOADING_VISIBLE_MS = 500L
 private const val HISTORY_ENTER_ANIMATION_MS = 500L
+private const val MAX_STREAMING_VISIBLE_CHARS = 4000
+private const val STREAMING_AUTO_SCROLL_STEP_CHARS = 120
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

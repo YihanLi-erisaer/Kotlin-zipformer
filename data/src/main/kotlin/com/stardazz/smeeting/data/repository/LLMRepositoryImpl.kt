@@ -48,6 +48,7 @@ class LLMRepositoryImpl @Inject constructor(
                 if (normalized.isEmpty()) return@withLock
                 val language = detectPromptLanguage(normalized)
                 val chunks = splitByUtf8Bytes(normalized, CHUNK_INPUT_UTF8_BYTES)
+                    .take(MAX_CHUNKS_PER_REQUEST)
                 val chunkSummaries = mutableListOf<String>()
 
                 chunks.forEachIndexed { index, chunk ->
@@ -62,12 +63,16 @@ class LLMRepositoryImpl @Inject constructor(
                                 language = language,
                             )
                         }
-                    val chunkResult = runGeneration(chunkPrompt) { partial ->
-                        val output =
-                            if (chunks.size == 1) partial
-                            else "${buildProgressPrefix(index + 1, chunks.size, language)}\n\n$partial"
-                        trySend(output)
-                    }.trim()
+                    val chunkResult = runGeneration(
+                        prompt = chunkPrompt,
+                        onPartial = { partial ->
+                            val output =
+                                if (chunks.size == 1) partial
+                                else "${buildProgressPrefix(index + 1, chunks.size, language)}\n\n$partial"
+                            trySend(output)
+                        },
+                        maxTokens = CHUNK_MAX_TOKENS,
+                    ).trim()
                     if (chunkResult.isNotEmpty()) {
                         chunkSummaries += chunkResult
                     }
@@ -80,7 +85,11 @@ class LLMRepositoryImpl @Inject constructor(
                 }
 
                 val mergePrompt = buildMergePrompt(chunkSummaries, language)
-                val merged = runGeneration(mergePrompt) { partial -> trySend(partial) }.trim()
+                val merged = runGeneration(
+                    prompt = mergePrompt,
+                    onPartial = { partial -> trySend(partial) },
+                    maxTokens = MERGE_MAX_TOKENS,
+                ).trim()
                 if (merged.isNotEmpty()) {
                     trySend(merged)
                 } else {
@@ -100,27 +109,42 @@ class LLMRepositoryImpl @Inject constructor(
         bridge.isGenerating.first { !it }
     }
 
-    private suspend fun runGeneration(prompt: String, onPartial: (String) -> Unit): String {
+    private suspend fun runGeneration(
+        prompt: String,
+        onPartial: (String) -> Unit,
+        maxTokens: Int,
+    ): String {
         return coroutineScope {
             val sb = StringBuilder()
             var lastEmitMs = 0L
+            var lastEmitLength = 0
             val collector = launch {
                 bridge.tokenFlow().collect { token ->
                     sb.append(token)
                     val now = SystemClock.elapsedRealtime()
-                    if (now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS) {
+                    val appendedChars = sb.length - lastEmitLength
+                    if (
+                        now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS &&
+                        appendedChars >= MIN_STREAM_EMIT_CHARS
+                    ) {
                         onPartial(sb.toString())
                         lastEmitMs = now
+                        lastEmitLength = sb.length
                     }
                 }
             }
+            var nativeResult = ""
             runCatching {
-                bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = llmThreads)
+                nativeResult = bridge.generate(prompt, maxTokens = maxTokens, nThreads = llmThreads)
             }.onFailure { t ->
                 Log.e(TAG, "LLM generate failed", t)
             }
             collector.cancelAndJoin()
-            sb.toString()
+            val streamed = sb.toString()
+            if (streamed.length > lastEmitLength) {
+                onPartial(streamed)
+            }
+            if (streamed.isNotBlank()) streamed else nativeResult
         }
     }
 
@@ -215,19 +239,23 @@ class LLMRepositoryImpl @Inject constructor(
     private fun computeAdaptiveThreads(): Int {
         val cpuCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
         val threads = (cpuCount / 2).coerceIn(MIN_THREADS, MAX_THREADS)
+        // val threads = 6
         Log.i(TAG, "Adaptive LLM threads: cpu=$cpuCount, threads=$threads")
         return threads
     }
 
     companion object {
         private const val TAG = "LLMRepositoryImpl"
-        private const val MAX_TOKENS = 512
+        private const val CHUNK_MAX_TOKENS = 224
+        private const val MERGE_MAX_TOKENS = 320
         private const val MIN_THREADS = 2
         private const val MAX_THREADS = 6
+        private const val MAX_CHUNKS_PER_REQUEST = 6
         private const val MAX_INPUT_UTF8_BYTES = 3000
         private const val CHUNK_INPUT_UTF8_BYTES = 2200
         private const val MERGE_INPUT_UTF8_BYTES = 3200
-        private const val STREAM_EMIT_INTERVAL_MS = 100L
+        private const val STREAM_EMIT_INTERVAL_MS = 250L
+        private const val MIN_STREAM_EMIT_CHARS = 48
         private const val HAN_UNICODE_START = 0x4E00
         private const val HAN_UNICODE_END = 0x9FFF
         // private const val MIN_HAN_CHAR_FOR_CHINESE = 4
