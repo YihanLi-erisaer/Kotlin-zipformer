@@ -90,6 +90,7 @@ import com.stardazz.smeeting.domain.model.TranscriptionHistoryEntry
 import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -97,7 +98,15 @@ fun HistoryScreen(
     viewModel: HistoryViewModel,
     onBack: () -> Unit,
 ) {
-    val entries by viewModel.entries.collectAsState()
+    var shouldLoadEntries by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(HISTORY_ENTER_ANIMATION_MS)
+        shouldLoadEntries = true
+    }
+    val entriesFlow = remember(shouldLoadEntries, viewModel) {
+        if (shouldLoadEntries) viewModel.entries else flowOf(null)
+    }
+    val entries by entriesFlow.collectAsState(initial = null)
     val entryList = entries ?: emptyList()
     val isLoadingEntries = entries == null
     var keepLoadingVisible by remember { mutableStateOf(true) }
@@ -896,6 +905,7 @@ private fun formatPlaybackTime(millis: Long): String {
 
 private const val AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 120
 private const val MIN_LOADING_VISIBLE_MS = 500L
+private const val HISTORY_ENTER_ANIMATION_MS = 500L
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
