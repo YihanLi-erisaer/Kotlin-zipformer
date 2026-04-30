@@ -1,4 +1,4 @@
-package com.stardazz.smeeting.feature.history
+﻿package com.stardazz.smeeting.feature.history
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -603,6 +604,7 @@ private fun HistoryEntryDetail(
     onDeleteAudio: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    var shouldAutoScroll by remember { mutableStateOf(true) }
     val generatingLabel = stringResource(R.string.summary_generating)
     val rawSummaryText: String? = when {
         isSummarizing && streamingText.isNotEmpty() -> streamingText
@@ -612,8 +614,16 @@ private fun HistoryEntryDetail(
     val showSummarySection =
         rawSummaryText != null || (isSummarizing && streamingText.isEmpty())
 
-    LaunchedEffect(isSummarizing, streamingText, rawSummaryText) {
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.value to scrollState.maxValue }
+            .collect { (value, max) ->
+                shouldAutoScroll = (max - value) <= AUTO_SCROLL_BOTTOM_THRESHOLD_PX
+            }
+    }
+
+    LaunchedEffect(isSummarizing, streamingText) {
         if (!isSummarizing) return@LaunchedEffect
+        if (!shouldAutoScroll) return@LaunchedEffect
         withFrameNanos { }
         scrollState.scrollTo(scrollState.maxValue)
     }
@@ -856,6 +866,8 @@ private fun formatPlaybackTime(millis: Long): String {
     val s = sec % 60
     return "%02d:%02d".format(m, s)
 }
+
+private const val AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 120
 
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

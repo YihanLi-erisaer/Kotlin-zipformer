@@ -1,5 +1,6 @@
 package com.stardazz.smeeting.data.repository
 
+import android.os.SystemClock
 import android.util.Log
 import com.stardazz.smeeting.core.common.InferenceCoordinator
 import com.stardazz.smeeting.core.llm.NcnnLlmBridge
@@ -42,11 +43,16 @@ class LLMRepositoryImpl @Inject constructor(
             try {
                 val prompt = buildPrompt(text)
                 val sb = StringBuilder()
+                var lastEmitMs = 0L
 
                 val collector = launch {
                     bridge.tokenFlow().collect { token ->
                         sb.append(token)
-                        send(sb.toString())
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastEmitMs >= STREAM_EMIT_INTERVAL_MS) {
+                            send(sb.toString())
+                            lastEmitMs = now
+                        }
                     }
                 }
 
@@ -102,6 +108,7 @@ class LLMRepositoryImpl @Inject constructor(
         private const val MAX_TOKENS = 512
         private const val N_THREADS = 4
         private const val MAX_INPUT_CHARS = 4096
+        private const val STREAM_EMIT_INTERVAL_MS = 100L
         private const val HAN_UNICODE_START = 0x4E00
         private const val HAN_UNICODE_END = 0x9FFF
         // private const val MIN_HAN_CHAR_FOR_CHINESE = 4
