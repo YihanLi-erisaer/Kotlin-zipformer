@@ -32,6 +32,7 @@ class LLMRepositoryImpl @Inject constructor(
      * "Generation already in progress" and returns "" (Re-summarize looks stuck then exits).
      */
     private val summarizeMutex = Mutex()
+    private val llmThreads: Int by lazy { computeAdaptiveThreads() }
 
     override val isModelReady: StateFlow<Boolean> = bridge.isLoaded
 
@@ -114,7 +115,7 @@ class LLMRepositoryImpl @Inject constructor(
                 }
             }
             runCatching {
-                bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = N_THREADS)
+                bridge.generate(prompt, maxTokens = MAX_TOKENS, nThreads = llmThreads)
             }.onFailure { t ->
                 Log.e(TAG, "LLM generate failed", t)
             }
@@ -211,10 +212,18 @@ class LLMRepositoryImpl @Inject constructor(
             PromptLanguage.ENGLISH -> ENGLISH_SYSTEM_PROMPT
         }
 
+    private fun computeAdaptiveThreads(): Int {
+        val cpuCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+        val threads = (cpuCount / 2).coerceIn(MIN_THREADS, MAX_THREADS)
+        Log.i(TAG, "Adaptive LLM threads: cpu=$cpuCount, threads=$threads")
+        return threads
+    }
+
     companion object {
         private const val TAG = "LLMRepositoryImpl"
         private const val MAX_TOKENS = 512
-        private const val N_THREADS = 4
+        private const val MIN_THREADS = 2
+        private const val MAX_THREADS = 6
         private const val MAX_INPUT_UTF8_BYTES = 3000
         private const val CHUNK_INPUT_UTF8_BYTES = 2200
         private const val MERGE_INPUT_UTF8_BYTES = 3200
